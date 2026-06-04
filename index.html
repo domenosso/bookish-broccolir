@@ -36,7 +36,8 @@
             backdrop-filter: blur(10px);
         }
         .title-text { font-size: 40px; color: #ff3333; text-shadow: 0 0 10px red; margin-bottom: 15px; font-weight: 900; }
-        
+        #timer-text { font-size: 24px; color: #00ffff; font-weight: bold; margin-bottom: 20px; }
+
         #meeting-content { display: flex; flex-direction: row; gap: 30px; width: 90%; height: 60%; }
         
         /* ЧАТ */
@@ -48,10 +49,10 @@
         }
         .chat-msg { padding: 8px 12px; background: rgba(255,255,255,0.1); border-radius: 5px; animation: fadeIn 0.3s; word-wrap: break-word;}
         .chat-msg b { text-shadow: 1px 1px 0 #000; }
-        #loading-ai { font-size: 14px; color: #00ffff; margin-top: 5px; font-style: italic; display: none; }
+        #loading-ai { font-size: 14px; color: #aaa; font-style: italic; display: none; margin-bottom: 5px; }
         
         /* ВВОД ДЛЯ ИГРОКА */
-        #player-input-area { display: none; gap: 10px; width: 100%; }
+        #player-input-area { display: flex; gap: 10px; width: 100%; }
         #chat-input-text { 
             flex-grow: 1; padding: 12px; font-size: 16px; border-radius: 8px; 
             border: 1px solid #777; background: #222; color: white; outline: none;
@@ -61,6 +62,7 @@
             color: white; border: none; border-radius: 8px; cursor: pointer; transition: 0.2s;
         }
         #chat-send-btn:hover { background: #0056b3; }
+        #chat-send-btn:disabled { background: #555; cursor: not-allowed; }
 
         /* ГОЛОСОВАНИЕ */
         #voting-container { width: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; }
@@ -87,35 +89,34 @@
     <div id="ui-layer">
         <div class="ui-box" id="role-text">Роль: ...</div>
         <div class="ui-box" id="score-text">Алмазов: 0 / 10</div>
-        <div class="ui-box">WASD - Ходить | E - Взять | Q - Убить (Мафия)</div>
+        <div class="ui-box">WASD - Движение | E - Взять | Q - Убить (Мафия)</div>
     </div>
 
     <!-- ЭКРАН СОБРАНИЯ -->
     <div id="meeting-screen">
         <div class="title-text" id="meeting-title">СОБРАНИЕ!</div>
+        <div id="timer-text">Обсуждение: 50 сек</div>
         
         <div id="meeting-content">
             <!-- Левая колонка: Чат -->
             <div id="chat-container">
                 <div id="chat-box"></div>
-                <div id="loading-ai">ИИ печатает...</div>
+                <div id="loading-ai">Кто-то печатает...</div>
                 
-                <!-- Поле ввода для игрока -->
                 <div id="player-input-area">
-                    <input type="text" id="chat-input-text" placeholder="Напишите в чат (боты вас услышат)..." autocomplete="off">
+                    <input type="text" id="chat-input-text" placeholder="Напишите сообщение..." autocomplete="off">
                     <button id="chat-send-btn">Отправить</button>
                 </div>
             </div>
 
             <!-- Правая колонка: Голосование -->
             <div id="voting-container">
-                <div id="voting-status" style="font-size: 24px; color: #aaa; margin-bottom: 20px;">Обсуждение...</div>
+                <div id="voting-status" style="font-size: 24px; color: #aaa; margin-bottom: 20px;">Чат активен. Идет обсуждение...</div>
                 <div id="voting-area"></div>
             </div>
         </div>
     </div>
 
-    <!-- ЭКРАН КОНЦА ИГРЫ -->
     <div id="game-over-screen">
         <div class="title-text" id="game-over-text" style="font-size: 60px;">ПОБЕДА</div>
         <button class="vote-btn skip" onclick="location.reload()" style="width: 300px;">Играть снова</button>
@@ -123,11 +124,11 @@
 </div>
 
 <script>
-    puter.quiet = true; // Отключаем логотип Puter в консоли
+    puter.quiet = true; // Отключаем лог Puter
 
     const offlinePhrases = [
-        "Где труп?", "Я просто собирал алмазы.", "Кто-нибудь видел убийцу?", "Я чист!",
-        "Скипаем?", "Я вообще на другой стороне карты был.", "Подозрительно..."
+        "где он лежал?", "я только подошел", "подозрительно", "я чист",
+        "скипаем?", "ничего не видел", "давайте думать", "я собирал алмазы"
     ];
 
     async function askAI(promptContext) {
@@ -143,7 +144,6 @@
             let cleanResponse = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
             return JSON.parse(cleanResponse);
         } catch (e) {
-            console.warn("Связь с ИИ прервана.");
             return null;
         }
     }
@@ -382,30 +382,32 @@
         
         requestAnimationFrame(gameLoop); setInterval(spawnDiamonds, 3000);
         
-        // Настройка чата для игрока
+        // Ввод игрока
         document.getElementById('chat-send-btn').onclick = sendPlayerMessage;
         document.getElementById('chat-input-text').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') sendPlayerMessage();
         });
     }
 
-    // --- ЛОГИКА СОБРАНИЯ И ЧАТА ---
+    // --- ЛОГИКА СОБРАНИЯ И ЧАТА (С ТАЙМЕРОМ) ---
     let chatHistory = [];
     let votes = {};
+    let meetingTimer = 50;
+    let timerInterval;
+    let isChatActive = false;
     
-    // Отправка сообщения живым игроком
     function sendPlayerMessage() {
-        if(localPlayer.isDead) return;
+        if(!isChatActive || localPlayer.isDead) return;
         let input = document.getElementById('chat-input-text');
         let text = input.value.trim();
         if(text) {
             chatHistory.push(`${localPlayer.colorName}: ${text}`);
-            addChatHTML("ВЫ " + localPlayer.colorName, text, "#ffffff");
+            addChatHTML(localPlayer.colorName, text, "#ffffff");
             input.value = '';
         }
     }
 
-    async function startMeeting(reporter, deadPlayer) {
+    function startMeeting(reporter, deadPlayer) {
         gameState = STATE_MEETING; keys.w = keys.a = keys.s = keys.d = false;
         
         document.getElementById('meeting-screen').style.display = 'flex';
@@ -414,52 +416,70 @@
         document.getElementById('voting-status').style.display = 'block';
         document.getElementById('meeting-title').innerText = `СОБРАНИЕ! Нашли: ${deadPlayer.colorName}`;
         
-        chatHistory = [`СИСТЕМА: ${reporter.colorName} нашел труп (${deadPlayer.colorName}) в локации: ${deadPlayer.currentRoom}.`];
-        addChatHTML("СИСТЕМА", chatHistory[0], "#aaa");
+        chatHistory = [`СИСТЕМА: ${reporter.colorName} нашел труп. Локация: ${deadPlayer.currentRoom}.`];
+        addChatHTML("СИСТЕМА", `${reporter.colorName} нашел труп. Локация: ${deadPlayer.currentRoom}.`, "#aaa");
 
-        // Включаем чат для игрока, если жив
+        let inputArea = document.getElementById('player-input-area');
+        let sendBtn = document.getElementById('chat-send-btn');
+        let inputText = document.getElementById('chat-input-text');
+        
         if (!localPlayer.isDead) {
-            document.getElementById('player-input-area').style.display = 'flex';
+            inputArea.style.display = 'flex'; sendBtn.disabled = false; inputText.disabled = false;
         } else {
-            document.getElementById('player-input-area').style.display = 'none';
+            inputArea.style.display = 'none';
         }
+
+        // Запуск таймера
+        isChatActive = true;
+        meetingTimer = 50;
+        document.getElementById('timer-text').innerText = `Обсуждение: ${meetingTimer} сек`;
+        
+        timerInterval = setInterval(() => {
+            meetingTimer--;
+            document.getElementById('timer-text').innerText = `Обсуждение: ${meetingTimer} сек`;
+            if (meetingTimer <= 0) {
+                clearInterval(timerInterval);
+                endChatPhase();
+            }
+        }, 1000);
 
         let aliveBots = players.filter(p => p.isBot && !p.isDead);
+        botChatLoop(aliveBots);
+    }
+
+    async function botChatLoop(aliveBots) {
+        if (!isChatActive || aliveBots.length === 0) return;
+
+        let bot = aliveBots[Math.floor(Math.random() * aliveBots.length)];
+        document.getElementById('loading-ai').style.display = 'block';
         
-        // Даем ботам высказаться
-        for (let bot of aliveBots) {
-            document.getElementById('loading-ai').style.display = 'block';
-            
-            let memoryStr = Object.keys(bot.memory.lastSeen).map(k => `${k} был в ${bot.memory.lastSeen[k]}`).join(", ");
-            if(!memoryStr) memoryStr = "Никого не видел.";
+        let memoryStr = Object.keys(bot.memory.lastSeen).map(k => `${k} был со мной в локации ${bot.memory.lastSeen[k]}`).join(". ");
+        if(!memoryStr) memoryStr = "я никого не видел";
 
-            // НОВЫЙ ПРОМПТ (чтобы боты говорили как геймеры и не повторялись)
-            let prompt = `
-                Ты играешь в игру типа Among Us. Твой цвет: ${bot.colorName}. 
-                Роль: ${bot.isMafia ? 'Мафия (лги, переводи подозрения)' : 'Мирный (ищи убийцу)'}.
-                Твое положение до сбора: ${bot.currentRoom}. Память: ${memoryStr}.
-                Чат: ${chatHistory.join(" | ")}.
-                ИНСТРУКЦИЯ:
-                1. Ответь кратко (до 10 слов). Используй геймерский сленг (скип, чист, репорт, фейк).
-                2. НИКАКИХ СЛОВ вроде "алиби", "маршрут" или "доказательства". Говори проще.
-                3. НЕ ПОВТОРЯЙ фразы из чата. Напиши уникальную мысль или реакцию.
-                Формат JSON: {"msg": "твой текст"}
-            `;
+        let prompt = `
+            Твой цвет: ${bot.colorName}. Роль: ${bot.isMafia ? 'Мафия (ври, отводи подозрения)' : 'Мирный (ищи мафию)'}.
+            Твоя локация: ${bot.currentRoom}. Память: ${memoryStr}.
+            Последние сообщения чата: ${chatHistory.slice(-6).join(" | ")}.
+            ИНСТРУКЦИЯ:
+            1. Отвечай как обычный игрок-человек. Коротко, можно с маленькой буквы, без точек.
+            2. ВНИМАТЕЛЬНО ПРОЧИТАЙ ЧАТ. Если кто-то спрашивает "где труп?", прочитай где он (это писала СИСТЕМА) и ответь.
+            3. Если спрашивают тебя, отвечай по своей памяти. Не выдумывай "маршруты" и "алиби".
+            4. Если вопросов нет, просто скажи кого подозреваешь или что ты чист.
+            Формат JSON: {"msg": "твой текст"}
+        `;
 
-            let response = await askAI(prompt);
-            let msgText = offlinePhrases[Math.floor(Math.random() * offlinePhrases.length)]; 
-            if (response && response.msg) msgText = response.msg;
+        let response = await askAI(prompt);
+        let msgText = offlinePhrases[Math.floor(Math.random() * offlinePhrases.length)]; 
+        if (response && response.msg) msgText = response.msg;
 
+        if (isChatActive) {
             chatHistory.push(`${bot.colorName}: ${msgText}`);
             addChatHTML(bot.colorName, msgText, bot.hexColor);
+            document.getElementById('loading-ai').style.display = 'none';
             
-            // Пауза 2-3 секунды, чтобы игрок успел тоже что-то написать между ботами
-            await new Promise(r => setTimeout(r, 2000));
+            // Следующий бот напишет через 4 - 7 секунд
+            setTimeout(() => botChatLoop(aliveBots), Math.random() * 3000 + 4000);
         }
-
-        document.getElementById('loading-ai').style.display = 'none';
-        document.getElementById('voting-status').style.display = 'none';
-        startVoting(aliveBots);
     }
 
     function addChatHTML(name, text, color) {
@@ -469,9 +489,19 @@
         chat.appendChild(div); chat.scrollTop = chat.scrollHeight;
     }
 
+    function endChatPhase() {
+        isChatActive = false;
+        document.getElementById('chat-send-btn').disabled = true;
+        document.getElementById('chat-input-text').disabled = true;
+        document.getElementById('loading-ai').style.display = 'none';
+        
+        let aliveBots = players.filter(p => p.isBot && !p.isDead);
+        startVoting(aliveBots);
+    }
+
     function startVoting(aliveBots) {
-        addChatHTML("СИСТЕМА", "ОБСУЖДЕНИЕ ОКОНЧЕНО. Голосуйте!", "#0f0");
-        document.getElementById('player-input-area').style.display = 'none'; // Отключаем ввод
+        addChatHTML("СИСТЕМА", "ВРЕМЯ ВЫШЛО. ГОЛОСУЙТЕ!", "#ff0");
+        document.getElementById('voting-status').style.display = 'none';
         
         let voteArea = document.getElementById('voting-area');
         voteArea.innerHTML = ''; voteArea.style.display = 'flex';
@@ -492,7 +522,7 @@
             }
         });
         
-        let skipBtn = document.createElement('button'); skipBtn.className = 'vote-btn skip'; skipBtn.innerText = 'Скип';
+        let skipBtn = document.createElement('button'); skipBtn.className = 'vote-btn skip'; skipBtn.innerText = 'Скипнуть';
         skipBtn.onclick = () => { castVote('Skip'); processBotVotes(aliveBots); };
         voteArea.appendChild(skipBtn);
     }
@@ -504,15 +534,16 @@
     }
 
     async function processBotVotes(aliveBots) {
-        document.getElementById('loading-ai').style.display = 'block';
-        document.getElementById('loading-ai').innerText = "Боты голосуют...";
+        document.getElementById('voting-status').style.display = 'block';
+        document.getElementById('voting-status').innerText = "Ожидание голосов ботов...";
 
         for (let bot of aliveBots) {
             let aliveNames = players.filter(p => !p.isDead).map(p=>p.colorName).join(", ");
             let prompt = `
                 Твой цвет: ${bot.colorName}. Роль: ${bot.isMafia ? 'Мафия' : 'Мирный'}.
                 Живые: ${aliveNames}. Чат: ${chatHistory.join(" | ")}.
-                Кого выкинуть на основе чата? Выбери одно имя из Живых или напиши "Skip".
+                Проанализируй чат. Против кого больше всего подозрений? Кого выкинуть?
+                Выбери одно имя из Живых или напиши "Skip".
                 Формат JSON: {"vote": "Имя или Skip"}
             `;
 
@@ -524,7 +555,6 @@
             votes[target]++; addChatHTML("СИСТЕМА", `${bot.colorName} проголосовал.`, "#666");
         }
 
-        document.getElementById('loading-ai').style.display = 'none';
         setTimeout(tallyVotes, 1500);
     }
 
@@ -536,7 +566,7 @@
         }
 
         let res = "";
-        if (tie || ejected === 'Skip') res = "Ничья или пропуск. Никто не выбывает.";
+        if (tie || ejected === 'Skip') res = "Никто не набрал большинства. Пропуск.";
         else {
             let p = players.find(x => x.colorName === ejected);
             if (p) {
@@ -584,7 +614,7 @@
     }
 
     window.addEventListener('keydown', (e) => {
-        if(document.activeElement.id === 'chat-input-text') return; // Игнорируем WASD при наборе чата
+        if(document.activeElement.id === 'chat-input-text') return; // Игнорируем WASD при наборе текста
         if (e.code === 'KeyW' || e.code === 'ArrowUp') keys.w = true;
         if (e.code === 'KeyS' || e.code === 'ArrowDown') keys.s = true;
         if (e.code === 'KeyA' || e.code === 'ArrowLeft') keys.a = true;
