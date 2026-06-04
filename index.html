@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Mafia AI - Smart Bots Edition</title>
+    <title>Mafia AI - Ultimate Edition</title>
     <script src="https://js.puter.com/v2/"></script>
     <style>
         body {
@@ -15,7 +15,7 @@
         #ui-layer { position: absolute; top: 15px; left: 15px; pointer-events: none; display: flex; flex-direction: column; gap: 10px; }
         .ui-box {
             background: rgba(20, 20, 30, 0.85); padding: 10px 20px; border-radius: 8px; 
-            border: 1px solid rgba(255,255,255,0.2); font-size: 18px; font-weight: bold; 
+            border: 1px solid rgba(255,255,255,0.2); font-size: 16px; font-weight: bold; 
             box-shadow: 0 4px 10px rgba(0,0,0,0.5); backdrop-filter: blur(5px);
         }
         
@@ -68,15 +68,18 @@
     <div id="ui-layer">
         <div class="ui-box" id="role-text">Роль: ...</div>
         <div class="ui-box" id="score-text">Алмазов: 0 / 20</div>
-        <div class="ui-box" style="font-size: 14px;">WASD - Ходить | E - Взять | Q - Убить | M - Звук</div>
+        <div class="ui-box" style="font-size: 14px; color: #ffaa00;">
+            WASD - Бег | E - Алмаз | Q - Убить<br>
+            F - Репорт трупа | R - Экстр. Кнопка
+        </div>
     </div>
     <div id="meeting-screen">
         <div class="title-text" id="meeting-title">СОБРАНИЕ</div>
-        <div id="timer-text">Обсуждение: 120 сек</div>
+        <div id="timer-text">Обсуждение: 90 сек</div>
         <div id="meeting-content">
             <div id="chat-container">
                 <div id="chat-box"></div>
-                <div id="loading-ai">ИИ анализирует ситуацию...</div>
+                <div id="loading-ai">ИИ анализирует...</div>
                 <div id="player-input-area">
                     <input type="text" id="chat-input-text" placeholder="Напишите аргумент..." autocomplete="off">
                     <button id="chat-send-btn">Отправить</button>
@@ -113,13 +116,12 @@
             osc.type = 'sawtooth'; osc.frequency.setValueAtTime(100, now); osc.frequency.exponentialRampToValueAtTime(20, now + 0.3);
             gain.gain.setValueAtTime(0.3, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
             osc.start(now); osc.stop(now + 0.3);
-        } else if (type === 'meeting') {
-            osc.type = 'square'; osc.frequency.setValueAtTime(400, now); osc.frequency.setValueAtTime(600, now + 0.3);
-            gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.8);
-            osc.start(now); osc.stop(now + 0.8);
+        } else if (type === 'meeting' || type === 'alarm') {
+            osc.type = 'square'; osc.frequency.setValueAtTime(400, now); osc.frequency.setValueAtTime(800, now + 0.5);
+            gain.gain.setValueAtTime(0.2, now); gain.gain.linearRampToValueAtTime(0, now + 1);
+            osc.start(now); osc.stop(now + 1);
         }
     }
-    window.addEventListener('keydown', (e) => { if(e.code === 'KeyM' && document.activeElement.id !== 'chat-input-text') isMuted = !isMuted; });
 
     // --- ИИ ---
     async function askAI(promptContext) {
@@ -143,17 +145,21 @@
     let mapWalls = [], rooms = {}, diamonds = [], players = [];
     const COLORS = ['Красный', 'Синий', 'Зеленый', 'Желтый', 'Фиолетовый', 'Оранжевый', 'Голубой', 'Розовый', 'Белый', 'Коричневый'];
     const HEX_COLORS = ['#ff3333', '#3388ff', '#33ff33', '#ffff33', '#aa33ff', '#ff8800', '#33ffff', '#ff66b2', '#ffffff', '#8b4513'];
-    const PLAYER_RADIUS = 18, SPEED = 5, BOT_SPEED = 4, KILL_COOLDOWN = 600, KILL_RADIUS = 60, REPORT_RADIUS = 70;
+    const PLAYER_RADIUS = 18, SPEED = 5.5, BOT_SPEED = 4.5, KILL_COOLDOWN = 600, KILL_RADIUS = 70;
 
-    let basket = { x: 1150, y: 750, w: 100, h: 100, room: "Главный Холл" };
-    const keys = { w: false, a: false, s: false, d: false, e: false, q: false };
+    let basket = { x: 1150, y: 350, w: 100, h: 100, room: "Главный Холл" }; // Сместил корзину
+    let emergencyButton = { x: 1200, y: 800, r: 40, room: "Главный Холл" }; // Кнопка в центре карты
+
+    const keys = { w: false, a: false, s: false, d: false, e: false, q: false, f: false, r: false };
+    let meetingCooldown = 0; // КД на кнопку
 
     let pastRoundsMemory = []; let currentAccusations = {};
 
-    const floorPattern = document.createElement('canvas'); floorPattern.width = 60; floorPattern.height = 60;
-    const pCtx = floorPattern.getContext('2d'); pCtx.fillStyle = '#1c1e22'; pCtx.fillRect(0,0,60,60);
-    pCtx.strokeStyle = '#111'; pCtx.lineWidth = 3; pCtx.strokeRect(0,0,60,60); let floorTex;
+    const floorPattern = document.createElement('canvas'); floorPattern.width = 80; floorPattern.height = 80;
+    const pCtx = floorPattern.getContext('2d'); pCtx.fillStyle = '#1c1e22'; pCtx.fillRect(0,0,80,80);
+    pCtx.strokeStyle = '#15171a'; pCtx.lineWidth = 4; pCtx.strokeRect(0,0,80,80); let floorTex;
 
+    // --- УПРАВЛЕНИЕ ---
     window.addEventListener('keydown', (e) => {
         if(document.activeElement.id === 'chat-input-text') return;
         if (e.code === 'KeyW' || e.code === 'ArrowUp') keys.w = true;
@@ -161,6 +167,7 @@
         if (e.code === 'KeyA' || e.code === 'ArrowLeft') keys.a = true;
         if (e.code === 'KeyD' || e.code === 'ArrowRight') keys.d = true;
         if (e.code === 'KeyE') keys.e = true; if (e.code === 'KeyQ') keys.q = true;
+        if (e.code === 'KeyF') keys.f = true; if (e.code === 'KeyR') keys.r = true;
     });
     window.addEventListener('keyup', (e) => {
         if (e.code === 'KeyW' || e.code === 'ArrowUp') keys.w = false;
@@ -168,6 +175,7 @@
         if (e.code === 'KeyA' || e.code === 'ArrowLeft') keys.a = false;
         if (e.code === 'KeyD' || e.code === 'ArrowRight') keys.d = false;
         if (e.code === 'KeyE') keys.e = false; if (e.code === 'KeyQ') keys.q = false;
+        if (e.code === 'KeyF') keys.f = false; if (e.code === 'KeyR') keys.r = false;
     });
 
     class Wall {
@@ -203,16 +211,13 @@
             this.isMafia = false; this.isDead = false; this.hasDiamond = false;
             this.killCooldown = KILL_COOLDOWN; this.currentRoom = "Главный Холл";
             
-            // Умная память: массив событий
-            this.memoryLog = []; 
-            this.updateTimer = 0;
-            
+            this.memoryLog = []; this.updateTimer = 0;
             this.vx = 0; this.vy = 0; this.targetX = null; this.targetY = null; 
-            this.stuckTimer = 0; this.avoidTimer = 0;
-            this.isMoving = false; this.walkCycle = 0; this.timeSinceDeath = 0;
             
-            this.aiState = 'WANDER'; // WANDER, HUNT, FLEE
-            this.isAskingLLM = false;
+            // Анти-застревание
+            this.stuckTimer = 0; this.avoidTimer = 0;
+            
+            this.isMoving = false; this.walkCycle = 0; this.timeSinceDeath = 0;
         }
 
         draw() {
@@ -250,12 +255,8 @@
             let prevRoom = this.currentRoom;
             this.currentRoom = getRoomAt(this.x, this.y); 
 
-            // Логика Аналитики (События)
             this.updateTimer++;
-            if(this.updateTimer > 30) {
-                this.analyzeSurroundings(prevRoom);
-                this.updateTimer = 0;
-            }
+            if(this.updateTimer > 40) { this.analyzeSurroundings(); this.updateTimer = 0; }
 
             let dx = 0, dy = 0;
             if (!this.isBot) {
@@ -272,14 +273,18 @@
             if (dy !== 0) { this.y += dy; if (this.checkWallCollision()) this.y -= dy; }
             this.x = Math.max(this.r, Math.min(MAP_W - this.r, this.x)); this.y = Math.max(this.r, Math.min(MAP_H - this.r, this.y));
 
-            // Выталкивание ботов
+            // УМНОЕ АНТИ-ЗАСТРЕВАНИЕ ДЛЯ БОТОВ
             if (this.isBot) {
-                if (this.avoidTimer > 0) this.avoidTimer--;
-                else {
+                if (this.avoidTimer > 0) {
+                    this.avoidTimer--;
+                } else {
                     if ((dx !== 0 || dy !== 0) && !this.isMoving) this.stuckTimer++; else this.stuckTimer = 0;
-                    if (this.stuckTimer > 10) {
-                        this.avoidTimer = 40; let ang = Math.random() * Math.PI * 2;
-                        this.vx = Math.cos(ang) * BOT_SPEED; this.vy = Math.sin(ang) * BOT_SPEED; this.stuckTimer = 0;
+                    if (this.stuckTimer > 8) {
+                        // Бот застрял. Приказываем ему идти в центр ТЕКУЩЕЙ комнаты, чтобы вылезти из угла.
+                        let rc = getRoomCenter(this.currentRoom);
+                        let ang = Math.atan2(rc.y - this.y, rc.x - this.x);
+                        this.vx = Math.cos(ang) * BOT_SPEED; this.vy = Math.sin(ang) * BOT_SPEED;
+                        this.avoidTimer = 20; this.stuckTimer = 0;
                     }
                 }
             }
@@ -289,12 +294,11 @@
                 camera.y = Math.max(0, Math.min(MAP_H - canvas.height, this.y - canvas.height / 2));
             }
 
-            // Мафия никогда не репортит. Мирные репортят.
-            if (!this.isMafia) {
+            // БОТЫ РЕПОРТЯТ АВТОМАТИЧЕСКИ
+            if (this.isBot && !this.isMafia) {
                 for (let p of players) {
-                    if (p.isDead && !p.reported && p.timeSinceDeath > 90) { 
-                        // Видим ли мы труп (проверка стен лучами слишком сложна, проверяем комнату и дистанцию)
-                        if (Math.hypot(this.x - p.x, this.y - p.y) < REPORT_RADIUS && this.currentRoom === p.currentRoom) {
+                    if (p.isDead && !p.reported && p.timeSinceDeath > 60) { 
+                        if (Math.hypot(this.x - p.x, this.y - p.y) < 120 && this.currentRoom === p.currentRoom) {
                             p.reported = true; startMeeting(this, p); return;
                         }
                     }
@@ -302,17 +306,11 @@
             }
         }
 
-        analyzeSurroundings(prevRoom) {
-            // Анализ для чата: кто куда побежал
+        analyzeSurroundings() {
             for(let p of players) {
                 if(p === this || p.isDead) continue;
-                if(Math.hypot(this.x - p.x, this.y - p.y) < 300) {
-                    // Заметили подозрительное поведение
-                    if(p.isMoving && p.currentRoom !== this.currentRoom && p.currentRoom !== "Коридор") {
-                        this.logEvent(`видел как ${p.colorName} выбегал из ${p.currentRoom}`);
-                    } else if (this.currentRoom !== "Коридор") {
-                        this.logEvent(`был с ${p.colorName} в ${this.currentRoom}`);
-                    }
+                if(Math.hypot(this.x - p.x, this.y - p.y) < 250 && this.currentRoom !== "Коридор") {
+                    this.logEvent(`${p.colorName} был в ${this.currentRoom}`);
                 }
             }
         }
@@ -320,22 +318,24 @@
         logEvent(text) {
             if(!this.memoryLog.includes(text)) {
                 this.memoryLog.push(text);
-                if(this.memoryLog.length > 3) this.memoryLog.shift(); // Помним только 3 последних события
+                if(this.memoryLog.length > 2) this.memoryLog.shift();
             }
         }
 
         handlePlayerActions() {
+            // Взять алмаз
             if (keys.e && !this.isMafia) {
                 if (this.hasDiamond && Math.hypot((basket.x+50)-this.x, (basket.y+50)-this.y) < 100) {
                     this.hasDiamond = false; score++; updateScore(); keys.e = false; playSound('diamond');
                 } else if (!this.hasDiamond) {
                     for (let i = 0; i < diamonds.length; i++) {
-                        if (Math.hypot(diamonds[i].x - this.x, diamonds[i].y - this.y) < 50) {
+                        if (Math.hypot(diamonds[i].x - this.x, diamonds[i].y - this.y) < 60) {
                             this.hasDiamond = true; diamonds.splice(i, 1); keys.e = false; playSound('diamond'); break;
                         }
                     }
                 }
             }
+            // Убить
             if (keys.q && this.isMafia && this.killCooldown <= 0) {
                 for (let p of players) {
                     if (!p.isDead && !p.isMafia && Math.hypot(p.x - this.x, p.y - this.y) < KILL_RADIUS) {
@@ -344,63 +344,39 @@
                     }
                 }
             }
+            // РУЧНОЙ РЕПОРТ
+            if (keys.f && !this.isDead) {
+                let corpse = players.find(p => p.isDead && !p.reported && Math.hypot(p.x - this.x, p.y - this.y) < 100);
+                if(corpse) { keys.f = false; corpse.reported = true; startMeeting(this, corpse); }
+            }
+            // ЭКСТРЕННАЯ КНОПКА
+            if (keys.r && !this.isDead && meetingCooldown <= 0) {
+                if (Math.hypot(emergencyButton.x - this.x, emergencyButton.y - this.y) < 100) {
+                    keys.r = false; meetingCooldown = 3600; // 1 минута КД
+                    startMeeting(this, null);
+                }
+            }
         }
 
         updateAI() {
             if (this.avoidTimer > 0) return;
 
-            // МАФИЯ - УМНЫЙ ИНТЕЛЛЕКТ
-            if (this.isMafia) {
-                if (this.aiState === 'FLEE') {
-                    // Убегает после убийства 5 секунд
-                    if (this.killCooldown < KILL_COOLDOWN - 300) { this.aiState = 'WANDER'; }
-                } 
-                else if (this.killCooldown <= 0 && !this.isAskingLLM) {
+            // Навигация
+            if (this.targetX === null || Math.hypot(this.targetX - this.x, this.targetY - this.y) < 20) {
+                if (this.isMafia) {
                     let closest = null, minD = 9999;
-                    let visiblePlayers = [];
                     for (let p of players) {
-                        if (p === this || p.isDead) continue;
+                        if (p === this || p.isDead || p.isMafia) continue;
                         let d = Math.hypot(this.x - p.x, this.y - p.y);
-                        if(d < 300) visiblePlayers.push(p);
-                        if (!p.isMafia && d < minD) { minD = d; closest = p; }
+                        if (d < minD) { minD = d; closest = p; }
                     }
-
-                    if (closest && minD < KILL_RADIUS * 2) {
-                        // Одиночная ли цель?
-                        let witnesses = visiblePlayers.filter(p => p !== closest && !p.isMafia);
-                        if (witnesses.length === 0) {
-                            // ИМБА: Мафия спрашивает нейросеть убивать или нет!
-                            this.isAskingLLM = true;
-                            this.vx = 0; this.vy = 0; // Останавливается подумать
-                            
-                            askAI(`Ты мафия в игре. Рядом ${closest.colorName}. Свидетелей нет. Убить? Ответь JSON: {"action": "kill"} или {"action": "wait"}`).then(res => {
-                                if (res && res.action === 'kill' && Math.hypot(closest.x - this.x, closest.y - this.y) < KILL_RADIUS + 20) {
-                                    closest.isDead = true; closest.hasDiamond = false; closest.timeSinceDeath = 0;
-                                    this.killCooldown = KILL_COOLDOWN; playSound('kill');
-                                    this.aiState = 'FLEE';
-                                    let safeRoom = Object.keys(rooms)[Math.floor(Math.random()*Object.keys(rooms).length)];
-                                    let rc = getRoomCenter(safeRoom); this.targetX = rc.x; this.targetY = rc.y;
-                                }
-                                this.isAskingLLM = false;
-                            });
-                        } else {
-                            this.targetX = closest.x; this.targetY = closest.y; // Преследует, но ждет момента
-                        }
-                    } else if (!this.isAskingLLM) {
-                        this.aiState = 'WANDER';
-                    }
-                }
-                
-                if(this.aiState === 'WANDER' && !this.isAskingLLM) {
-                    if (this.targetX === null || Math.hypot(this.targetX - this.x, this.targetY - this.y) < 20) {
+                    if (closest && this.killCooldown <= 0 && minD < 400) {
+                        this.targetX = closest.x; this.targetY = closest.y;
+                    } else {
                         let roomNames = Object.keys(rooms); let rc = getRoomCenter(roomNames[Math.floor(Math.random()*roomNames.length)]);
-                        this.targetX = rc.x + (Math.random()*100-50); this.targetY = rc.y + (Math.random()*100-50);
+                        this.targetX = rc.x; this.targetY = rc.y;
                     }
-                }
-            } 
-            // МИРНЫЙ ИНТЕЛЛЕКТ
-            else {
-                if (this.targetX === null || Math.hypot(this.targetX - this.x, this.targetY - this.y) < 20) {
+                } else {
                     if (this.hasDiamond) {
                         this.targetX = basket.x + basket.w/2; this.targetY = basket.y + basket.h/2;
                     } else if (diamonds.length > 0) {
@@ -410,6 +386,20 @@
                         this.targetX = rc.x; this.targetY = rc.y;
                     }
                 }
+            }
+
+            let angle = Math.atan2(this.targetY - this.y, this.targetX - this.x);
+            this.vx = Math.cos(angle) * BOT_SPEED; this.vy = Math.sin(angle) * BOT_SPEED;
+
+            // Убийство ботом
+            if (this.isMafia && this.killCooldown <= 0) {
+                for (let p of players) {
+                    if (p !== this && !p.isDead && !p.isMafia && Math.hypot(this.x - p.x, this.y - p.y) < KILL_RADIUS) {
+                        p.isDead = true; p.hasDiamond = false; p.timeSinceDeath = 0;
+                        this.killCooldown = KILL_COOLDOWN; this.targetX = null; playSound('kill'); break;
+                    }
+                }
+            } else if (!this.isMafia) {
                 if (this.hasDiamond && Math.hypot((basket.x+basket.w/2)-this.x, (basket.y+basket.h/2)-this.y) < 80) {
                     this.hasDiamond = false; score++; updateScore(); this.targetX = null; playSound('diamond');
                 } else if (!this.hasDiamond) {
@@ -419,12 +409,6 @@
                         }
                     }
                 }
-            }
-
-            // Движение к цели
-            if (this.targetX !== null && !this.isAskingLLM) {
-                let angle = Math.atan2(this.targetY - this.y, this.targetX - this.x);
-                this.vx = Math.cos(angle) * BOT_SPEED; this.vy = Math.sin(angle) * BOT_SPEED;
             }
         }
 
@@ -440,20 +424,22 @@
 
     function initMap() {
         rooms = { 
-            "Двигатель": { x: 100, y: 100, w: 400, h: 400 }, "Реактор": { x: 100, y: 800, w: 400, h: 400 },
-            "Медпункт": { x: 800, y: 100, w: 300, h: 300 }, "Охрана": { x: 800, y: 800, w: 300, h: 300 },
-            "Кафетерий": { x: 1300, y: 100, w: 600, h: 400 }, "Главный Холл": { x: 1400, y: 800, w: 400, h: 400 },
-            "Оружейная": { x: 2100, y: 100, w: 250, h: 300 }, "Щиты": { x: 2100, y: 800, w: 250, h: 300 }
+            "Двигатель": { x: 100, y: 100, w: 400, h: 400 }, "Реактор": { x: 100, y: 900, w: 400, h: 400 },
+            "Медпункт": { x: 800, y: 100, w: 300, h: 300 }, "Охрана": { x: 800, y: 900, w: 300, h: 300 },
+            "Кафетерий": { x: 1400, y: 100, w: 600, h: 400 }, "Главный Холл": { x: 1400, y: 800, w: 600, h: 500 },
+            "Оружейная": { x: 2200, y: 100, w: 150, h: 300 }, "Щиты": { x: 2200, y: 900, w: 150, h: 300 }
         };
+
         mapWalls.push(new Wall(0, 0, MAP_W, 40)); mapWalls.push(new Wall(0, MAP_H-40, MAP_W, 40)); 
         mapWalls.push(new Wall(0, 0, 40, MAP_H)); mapWalls.push(new Wall(MAP_W-40, 0, 40, MAP_H));
 
+        // Стены с ШИРОЧЕННЫМИ проходами (по 120 пикселей)
         for (let name in rooms) {
             let r = rooms[name];
             mapWalls.push(new Wall(r.x, r.y, r.w, 20)); 
-            mapWalls.push(new Wall(r.x, r.y + r.h, r.w/2 - 60, 20)); mapWalls.push(new Wall(r.x + r.w/2 + 60, r.y + r.h, r.w/2 - 60, 20)); 
-            mapWalls.push(new Wall(r.x, r.y, 20, r.h/2 - 60)); mapWalls.push(new Wall(r.x, r.y + r.h/2 + 60, 20, r.h/2 - 60)); 
-            mapWalls.push(new Wall(r.x + r.w, r.y, 20, r.h/2 - 60)); mapWalls.push(new Wall(r.x + r.w, r.y + r.h/2 + 60, 20, r.h/2 - 60)); 
+            mapWalls.push(new Wall(r.x, r.y + r.h, r.w/2 - 80, 20)); mapWalls.push(new Wall(r.x + r.w/2 + 80, r.y + r.h, r.w/2 - 80, 20)); 
+            mapWalls.push(new Wall(r.x, r.y, 20, r.h/2 - 80)); mapWalls.push(new Wall(r.x, r.y + r.h/2 + 80, 20, r.h/2 - 80)); 
+            mapWalls.push(new Wall(r.x + r.w, r.y, 20, r.h/2 - 80)); mapWalls.push(new Wall(r.x + r.w, r.y + r.h/2 + 80, 20, r.h/2 - 80)); 
         }
     }
 
@@ -469,7 +455,7 @@
         if (diamonds.length < 15 && gameState === STATE_PLAYING) {
             let roomNames = Object.keys(rooms).filter(r => r !== "Главный Холл");
             let r = rooms[roomNames[Math.floor(Math.random() * roomNames.length)]];
-            diamonds.push(new Diamond(r.x + 80 + Math.random() * (r.w - 160), r.y + 80 + Math.random() * (r.h - 160), ""));
+            diamonds.push(new Diamond(r.x + 100 + Math.random() * (r.w - 200), r.y + 100 + Math.random() * (r.h - 200), ""));
         }
     }
 
@@ -482,7 +468,7 @@
             let p = new Player(i, i !== 0, COLORS[i], HEX_COLORS[i]); p.isMafia = (roles[i] === 'MAFIA'); players.push(p);
             if (i === 0) {
                 localPlayer = p;
-                document.getElementById('role-text').innerText = p.isMafia ? 'Роль: МАФИЯ (Q)' : 'Роль: Мирный';
+                document.getElementById('role-text').innerText = p.isMafia ? 'Роль: МАФИЯ' : 'Роль: Мирный';
                 document.getElementById('role-text').style.color = p.isMafia ? '#ff5555' : '#55ff55';
             }
         }
@@ -492,13 +478,13 @@
         document.getElementById('chat-input-text').addEventListener('keypress', function(e) { if (e.key === 'Enter') sendPlayerMessage(); });
     }
 
-    // --- ЧАТ ---
-    let chatHistory = []; let votes = {}; let meetingTimer = 120; let timerInterval; let isChatActive = false;
+    // --- ЧАТ И СОБРАНИЯ ---
+    let chatHistory = []; let votes = {}; let meetingTimer = 90; let timerInterval; let isChatActive = false;
     
     function parseAccusation(text, senderColor) {
         let txt = text.toLowerCase();
         for (let c of COLORS) {
-            if (txt.includes(c.toLowerCase()) && (txt.includes('за ') || txt.includes('кикаем') || txt.includes('голосуем') || txt.includes('он '))) {
+            if (txt.includes(c.toLowerCase()) && (txt.includes('за ') || txt.includes('кик') || txt.includes('он '))) {
                 if(!currentAccusations[c]) currentAccusations[c] = [];
                 if(!currentAccusations[c].includes(senderColor)) currentAccusations[c].push(senderColor);
             }
@@ -514,21 +500,29 @@
         }
     }
 
+    // Изменил startMeeting. Если deadPlayer === null, значит это экстренная кнопка.
     function startMeeting(reporter, deadPlayer) {
-        gameState = STATE_MEETING; keys.w = keys.a = keys.s = keys.d = false; keys.e = false; keys.q = false;
-        playSound('meeting'); currentAccusations = {}; 
+        gameState = STATE_MEETING; keys.w = keys.a = keys.s = keys.d = false; keys.e = false; keys.q = false; keys.f = false; keys.r = false;
+        playSound('alarm'); currentAccusations = {}; 
         
         document.getElementById('meeting-screen').style.display = 'flex'; document.getElementById('chat-box').innerHTML = '';
         document.getElementById('voting-area').style.display = 'none'; document.getElementById('voting-status').style.display = 'block';
-        document.getElementById('meeting-title').innerText = `ТРУП: ${deadPlayer.colorName}`;
         
-        chatHistory = []; addChatHTML("СИСТЕМА", `${reporter.colorName} нашел труп. Локация: ${deadPlayer.currentRoom}.`, "#ff5555");
+        chatHistory = [];
+        if (deadPlayer) {
+            document.getElementById('meeting-title').innerText = `ТРУП: ${deadPlayer.colorName}`;
+            addChatHTML("СИСТЕМА", `${reporter.colorName} нашел труп. Локация: ${deadPlayer.currentRoom}.`, "#ff5555");
+        } else {
+            document.getElementById('meeting-title').innerText = `КНОПКА: ${reporter.colorName}`;
+            addChatHTML("СИСТЕМА", `${reporter.colorName} нажал экстренную кнопку.`, "#ffaa00");
+        }
+
         let inputArea = document.getElementById('player-input-area');
         if (!localPlayer.isDead) {
             inputArea.style.display = 'flex'; document.getElementById('chat-send-btn').disabled = false; document.getElementById('chat-input-text').disabled = false;
         } else { inputArea.style.display = 'none'; }
 
-        isChatActive = true; meetingTimer = 120; document.getElementById('timer-text').innerText = `Обсуждение: ${meetingTimer} сек`;
+        isChatActive = true; meetingTimer = 90; document.getElementById('timer-text').innerText = `Обсуждение: ${meetingTimer} сек`;
         
         timerInterval = setInterval(() => {
             meetingTimer--; document.getElementById('timer-text').innerText = `Обсуждение: ${meetingTimer} сек`;
@@ -545,30 +539,39 @@
         document.getElementById('loading-ai').style.display = 'block';
         
         let memoryStr = bot.memoryLog.length > 0 ? bot.memoryLog.join(", ") : "ничего не видел";
-        let pastContext = pastRoundsMemory.length > 0 ? "Прошлые голосования: " + pastRoundsMemory.join(" ") : "";
+        let chatContext = chatHistory.slice(-4).join(" | ");
 
-        // ЖЕСТКИЙ ПРОМПТ. Аналитика + Лексика.
+        // ЖЕСТКАЯ ЗАЩИТА ОТ ПОПУГАЙСТВА И БРЕДА
         let prompt = `
-            Твой цвет: ${bot.colorName}. Роль: ${bot.isMafia ? 'Мафия (ври)' : 'Мирный'}. 
-            Что ты запомнил: ${memoryStr}. ${pastContext}
-            Чат: ${chatHistory.slice(-6).join(" | ")}.
+            Играем в Among Us. Твой цвет: ${bot.colorName}. Роль: ${bot.isMafia ? 'Мафия (ври)' : 'Мирный'}. 
+            Память: ${memoryStr}.
+            Последние сообщения: ${chatContext}.
             
-            ПРАВИЛА (СТРОГО):
-            1. ПИШИ КАК ШКОЛЬНИК-ГЕЙМЕР. Очень коротко (2-6 слов). Без точек, с маленькой буквы.
-            2. НИКАКИХ СЛОВ: "тайминги", "маршруты", "камеры", "алиби".
-            3. Если в твоей памяти написано "видел как Синий выбегал из Реактора", а труп нашли в Реакторе -> обвиняй Синего! ("синий выбегал оттуда", "это синий инфа сотка").
-            4. Мафия: переводи стрелки или пиши "скип".
+            СТРОГИЕ ПРАВИЛА:
+            1. ЗАПРЕЩЕНО повторять или перефразировать сообщения из чата! Скажи что-то НОВОЕ.
+            2. ЗАПРЕЩЕНО использовать слова: "тайминги", "маршруты", "камеры", "алиби", "скип сегодня без подсказок".
+            3. Если кто-то уже написал "скип", НЕ пиши "скип", напиши кого подозреваешь или скажи "я вообще в другой руме был".
+            4. Пиши как игрок-подросток: коротко, дерзко, с маленькой буквы.
             Формат JSON: {"msg": "твой текст"}
         `;
 
         let response = await askAI(prompt);
-        let msgText = "да я вообще алмазы носил"; 
+        
+        // Массив случайных ответов, если ИИ отвалится или выдаст ерунду
+        const fallbackPhrases = ["да хз вообще", "я чист", "че кого кикаем?", "никого не видел", "давайте скипать"];
+        let msgText = fallbackPhrases[Math.floor(Math.random() * fallbackPhrases.length)]; 
+
         if (response && response.msg) msgText = response.msg;
+
+        // Если ИИ все же попытался схалтурить и повторил "скип сегодня без подсказок", заменяем на нормальное.
+        if (msgText.toLowerCase().includes("без подсказок") || msgText.toLowerCase().includes("маршрут")) {
+            msgText = fallbackPhrases[Math.floor(Math.random() * fallbackPhrases.length)];
+        }
 
         if (isChatActive) {
             chatHistory.push(`${bot.colorName}: ${msgText}`); addChatHTML(bot.colorName, msgText, bot.hexColor);
             parseAccusation(msgText, bot.colorName); document.getElementById('loading-ai').style.display = 'none';
-            setTimeout(() => botChatLoop(aliveBots), Math.random() * 3000 + 3500);
+            setTimeout(() => botChatLoop(aliveBots), Math.random() * 3000 + 3000);
         }
     }
 
@@ -607,11 +610,11 @@
     }
 
     async function processBotVotes(aliveBots) {
-        document.getElementById('voting-status').style.display = 'block'; document.getElementById('voting-status').innerText = "Ожидание голосов ботов...";
+        document.getElementById('voting-status').style.display = 'block'; document.getElementById('voting-status').innerText = "Голосование ботов...";
         for (let bot of aliveBots) {
             let prompt = `
-                Твой цвет: ${bot.colorName}. Роль: ${bot.isMafia ? 'Мафия' : 'Мирный'}. Чат: ${chatHistory.slice(-15).join(" | ")}.
-                На кого больше всего гнали? Кого кикаем? Ответь ОДНИМ словом: Имя или Skip.
+                Цвет: ${bot.colorName}. Роль: ${bot.isMafia ? 'Мафия' : 'Мирный'}. Чат: ${chatHistory.slice(-10).join(" | ")}.
+                На кого больше всего гнали? Кого кикаем? Ответь ОДНИМ словом: Имя (из чата) или Skip.
                 Формат JSON: {"vote": "Имя или Skip"}
             `;
             let response = await askAI(prompt); let target = "Skip"; 
@@ -638,8 +641,7 @@
             let p = players.find(x => x.colorName === ejected);
             if (p) {
                 playSound('eject'); p.isDead = true; res = `${ejected} выкинут. Роль: ${p.isMafia ? 'МАФИЯ' : 'Мирный'}.`;
-                let accusers = currentAccusations[ejected] ? currentAccusations[ejected].join(" и ") : "никто конкретно";
-                pastRoundsMemory.push(`в прошлый раз кикнули ${ejected} (${p.isMafia ? 'мафия' : 'мирный'}), больше всего гнали: ${accusers}.`);
+                pastRoundsMemory.push(`выгнали ${ejected} (${p.isMafia ? 'мафия' : 'мирный'}).`);
                 if(pastRoundsMemory.length > 2) pastRoundsMemory.shift();
             }
         }
@@ -648,51 +650,4 @@
     }
 
     function checkWinCondition() {
-        let aliveMafia = players.filter(p => p.isMafia && !p.isDead).length, aliveCit = players.filter(p => !p.isMafia && !p.isDead).length;
-        if (score >= TARGET_SCORE) return endGame("МИРНЫЕ ПОБЕДИЛИ! Алмазы собраны.");
-        if (aliveMafia === 0) return endGame("МИРНЫЕ ПОБЕДИЛИ! Вся Мафия мертва.");
-        if (aliveMafia >= aliveCit) return endGame("МАФИЯ ПОБЕДИЛА! Мирных не осталось.");
-    }
-
-    function endGame(txt) { playSound('meeting'); gameState = STATE_GAMEOVER; document.getElementById('game-over-screen').style.display = 'flex'; document.getElementById('game-over-text').innerText = txt; }
-
-    function resetAfterMeeting() {
-        gameState = STATE_PLAYING;
-        players.forEach(p => {
-            if (!p.isDead) {
-                let center = getRoomCenter("Главный Холл");
-                p.x = center.x + (Math.random()*200-100); p.y = center.y + (Math.random()*200-100);
-                p.reported = false; p.targetX = null; p.memoryLog = []; p.timeSinceDeath = 0; p.isAskingLLM = false;
-                if(p.isMafia) p.killCooldown = KILL_COOLDOWN;
-            } else { p.reported = true; }
-        });
-    }
-
-    function updateScore() { document.getElementById('score-text').innerText = `Алмазов: ${score} / ${TARGET_SCORE}`; if(score >= TARGET_SCORE) checkWinCondition(); }
-
-    function gameLoop() {
-        if (gameState === STATE_PLAYING) {
-            ctx.fillStyle = '#050505'; ctx.fillRect(0, 0, canvas.width, canvas.height); 
-            ctx.save(); ctx.translate(-camera.x, -camera.y);
-            ctx.fillStyle = floorTex; ctx.fillRect(0, 0, MAP_W, MAP_H);
-            ctx.fillStyle = 'rgba(255,255,255,0.1)'; ctx.font = 'bold 40px Arial'; ctx.textAlign = 'center';
-            for (let name in rooms) ctx.fillText(name, rooms[name].x + rooms[name].w/2, rooms[name].y + rooms[name].h/2);
-            ctx.fillStyle = 'rgba(255, 100, 0, 0.2)'; ctx.beginPath(); ctx.arc(basket.x+50, basket.y+50, 70, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = '#8B4513'; ctx.fillRect(basket.x, basket.y, basket.w, basket.h);
-            ctx.fillStyle = '#fff'; ctx.font = '18px Arial'; ctx.fillText('КОРЗИНА', basket.x+50, basket.y+55);
-            ctx.restore(); 
-
-            mapWalls.forEach(w => w.draw()); diamonds.forEach(d => d.draw()); players.forEach(p => p.update());
-            let drawOrder = [...players].sort((a, b) => (a.isDead === b.isDead) ? 0 : a.isDead ? -1 : 1); drawOrder.forEach(p => p.draw());
-
-            if (localPlayer.isMafia && !localPlayer.isDead) {
-                ctx.fillStyle = 'white'; ctx.font = 'bold 20px Arial'; let cd = Math.ceil(localPlayer.killCooldown / 60);
-                ctx.fillText(cd > 0 ? `КД: ${cd}с` : 'УБИТЬ (Q)', localPlayer.x - camera.x - 30, localPlayer.y - camera.y - 35);
-            }
-        }
-        requestAnimationFrame(gameLoop);
-    }
-    window.onload = initGame;
-</script>
-</body>
-</html>
+        let aliveMafia = players.filter(p => 
