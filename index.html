@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Mafia AI - The Big Heist</title>
+    <title>Mafia AI - Smart Bots Edition</title>
     <script src="https://js.puter.com/v2/"></script>
     <style>
         body {
@@ -47,14 +47,12 @@
             padding: 15px 30px; font-size: 18px; font-weight: bold; background: #007bff;
             color: white; border: none; border-radius: 8px; cursor: pointer; transition: 0.2s;
         }
-        #chat-send-btn:hover { background: #0056b3; }
 
         #voting-container { width: 45%; display: flex; flex-direction: column; align-items: center; background: rgba(20,20,25,0.8); border-radius: 10px; padding: 20px;}
         #voting-area { display: none; width: 100%; flex-wrap: wrap; gap: 10px; justify-content: center; overflow-y: auto;}
         .vote-btn {
             padding: 15px; font-size: 20px; font-weight: bold; background: rgba(40, 40, 50, 0.9);
-            color: white; border: 3px solid; border-radius: 10px; cursor: pointer; transition: 0.2s;
-            width: 46%; text-align: center;
+            color: white; border: 3px solid; border-radius: 10px; cursor: pointer; transition: 0.2s; width: 46%; text-align: center;
         }
         .vote-btn:hover { transform: scale(1.03); background: rgba(80, 80, 90, 0.9); }
         .vote-btn:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
@@ -67,33 +65,29 @@
 
 <div id="game-container">
     <canvas id="gameCanvas"></canvas>
-    
     <div id="ui-layer">
         <div class="ui-box" id="role-text">Роль: ...</div>
         <div class="ui-box" id="score-text">Алмазов: 0 / 20</div>
-        <div class="ui-box" style="font-size: 14px;">WASD - Бег | E - Алмаз | Q - Килл | M - Мут звука</div>
+        <div class="ui-box" style="font-size: 14px;">WASD - Ходить | E - Взять | Q - Убить | M - Звук</div>
     </div>
-
     <div id="meeting-screen">
-        <div class="title-text" id="meeting-title">ЭКСТРЕННОЕ СОБРАНИЕ</div>
+        <div class="title-text" id="meeting-title">СОБРАНИЕ</div>
         <div id="timer-text">Обсуждение: 120 сек</div>
-        
         <div id="meeting-content">
             <div id="chat-container">
                 <div id="chat-box"></div>
-                <div id="loading-ai">Кто-то печатает...</div>
+                <div id="loading-ai">ИИ анализирует ситуацию...</div>
                 <div id="player-input-area">
-                    <input type="text" id="chat-input-text" placeholder="Пишите аргументы, боты читают чат..." autocomplete="off">
+                    <input type="text" id="chat-input-text" placeholder="Напишите аргумент..." autocomplete="off">
                     <button id="chat-send-btn">Отправить</button>
                 </div>
             </div>
             <div id="voting-container">
-                <div id="voting-status" style="font-size: 22px; color: #aaa; margin-bottom: 20px; text-align: center;">Анализ ситуации... Голосование откроется после обсуждения.</div>
+                <div id="voting-status" style="font-size: 22px; color: #aaa; text-align: center;">Анализ улик...</div>
                 <div id="voting-area"></div>
             </div>
         </div>
     </div>
-
     <div id="game-over-screen">
         <div class="title-text" id="game-over-text" style="font-size: 70px;">КОНЕЦ ИГРЫ</div>
         <button class="vote-btn skip" onclick="location.reload()" style="width: 300px;">Новая игра</button>
@@ -103,17 +97,13 @@
 <script>
     puter.quiet = true;
 
-    // --- ЗВУКОВАЯ СИСТЕМА (Синтезатор) ---
+    // --- ЗВУК ---
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     let isMuted = false;
-
     function playSound(type) {
-        if (isMuted) return;
-        if (audioCtx.state === 'suspended') audioCtx.resume();
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
+        if (isMuted || audioCtx.state === 'suspended') return;
+        const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
         osc.connect(gain); gain.connect(audioCtx.destination);
-
         const now = audioCtx.currentTime;
         if (type === 'diamond') {
             osc.type = 'sine'; osc.frequency.setValueAtTime(800, now); osc.frequency.exponentialRampToValueAtTime(1200, now + 0.1);
@@ -127,74 +117,64 @@
             osc.type = 'square'; osc.frequency.setValueAtTime(400, now); osc.frequency.setValueAtTime(600, now + 0.3);
             gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now + 0.8);
             osc.start(now); osc.stop(now + 0.8);
-        } else if (type === 'eject') {
-            osc.type = 'triangle'; osc.frequency.setValueAtTime(50, now); osc.frequency.exponentialRampToValueAtTime(10, now + 1.5);
-            gain.gain.setValueAtTime(0.2, now); gain.gain.linearRampToValueAtTime(0, now + 1.5);
-            osc.start(now); osc.stop(now + 1.5);
         }
     }
-
-    window.addEventListener('keydown', (e) => {
-        if(e.code === 'KeyM' && document.activeElement.id !== 'chat-input-text') {
-            isMuted = !isMuted;
-            alert(isMuted ? 'Звук выключен' : 'Звук включен');
-        }
-    });
+    window.addEventListener('keydown', (e) => { if(e.code === 'KeyM' && document.activeElement.id !== 'chat-input-text') isMuted = !isMuted; });
 
     // --- ИИ ---
     async function askAI(promptContext) {
         try {
-            const response = await puter.ai.chat(
-                "Отвечай СТРОГО в формате JSON. " + promptContext,
-                { model: "openai/gpt-5.4-nano" }
-            );
+            const response = await puter.ai.chat("Отвечай СТРОГО в формате JSON. " + promptContext, { model: "openai/gpt-5.4-nano" });
             let rawText = (typeof response === 'string') ? response : (response.message?.content || response.text || JSON.stringify(response));
-            let cleanResponse = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
-            return JSON.parse(cleanResponse);
+            return JSON.parse(rawText.replace(/```json/gi, '').replace(/```/g, '').trim());
         } catch (e) { return null; }
     }
 
     // --- ДВИЖОК ---
-    const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
-    
+    const canvas = document.getElementById('gameCanvas'); const ctx = canvas.getContext('2d');
     function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
     window.addEventListener('resize', resizeCanvas); resizeCanvas();
 
     const STATE_PLAYING = 0, STATE_MEETING = 1, STATE_GAMEOVER = 2;
     let gameState = STATE_PLAYING;
 
-    // Масштаб карты и камера
-    const MAP_W = 2400, MAP_H = 1600;
-    let camera = { x: 0, y: 0 };
-
+    const MAP_W = 2400, MAP_H = 1600; let camera = { x: 0, y: 0 };
     let score = 0; const TARGET_SCORE = 20;
     let mapWalls = [], rooms = {}, diamonds = [], players = [];
-    
     const COLORS = ['Красный', 'Синий', 'Зеленый', 'Желтый', 'Фиолетовый', 'Оранжевый', 'Голубой', 'Розовый', 'Белый', 'Коричневый'];
     const HEX_COLORS = ['#ff3333', '#3388ff', '#33ff33', '#ffff33', '#aa33ff', '#ff8800', '#33ffff', '#ff66b2', '#ffffff', '#8b4513'];
-    const PLAYER_RADIUS = 18, SPEED = 5, BOT_SPEED = 4, KILL_COOLDOWN = 600, KILL_RADIUS = 60;
+    const PLAYER_RADIUS = 18, SPEED = 5, BOT_SPEED = 4, KILL_COOLDOWN = 600, KILL_RADIUS = 60, REPORT_RADIUS = 70;
 
     let basket = { x: 1150, y: 750, w: 100, h: 100, room: "Главный Холл" };
-    const keys = { w: false, a: false, s: false, d: false };
+    const keys = { w: false, a: false, s: false, d: false, e: false, q: false };
 
-    // ГЛОБАЛЬНАЯ ПАМЯТЬ РАУНДОВ
-    let pastRoundsMemory = []; 
-    let currentAccusations = {}; // Кто на кого гонит в текущем чате
+    let pastRoundsMemory = []; let currentAccusations = {};
 
-    const floorPattern = document.createElement('canvas');
-    floorPattern.width = 60; floorPattern.height = 60;
-    const pCtx = floorPattern.getContext('2d');
-    pCtx.fillStyle = '#1c1e22'; pCtx.fillRect(0,0,60,60);
-    pCtx.strokeStyle = '#111'; pCtx.lineWidth = 3; pCtx.strokeRect(0,0,60,60);
-    let floorTex;
+    const floorPattern = document.createElement('canvas'); floorPattern.width = 60; floorPattern.height = 60;
+    const pCtx = floorPattern.getContext('2d'); pCtx.fillStyle = '#1c1e22'; pCtx.fillRect(0,0,60,60);
+    pCtx.strokeStyle = '#111'; pCtx.lineWidth = 3; pCtx.strokeRect(0,0,60,60); let floorTex;
+
+    window.addEventListener('keydown', (e) => {
+        if(document.activeElement.id === 'chat-input-text') return;
+        if (e.code === 'KeyW' || e.code === 'ArrowUp') keys.w = true;
+        if (e.code === 'KeyS' || e.code === 'ArrowDown') keys.s = true;
+        if (e.code === 'KeyA' || e.code === 'ArrowLeft') keys.a = true;
+        if (e.code === 'KeyD' || e.code === 'ArrowRight') keys.d = true;
+        if (e.code === 'KeyE') keys.e = true; if (e.code === 'KeyQ') keys.q = true;
+    });
+    window.addEventListener('keyup', (e) => {
+        if (e.code === 'KeyW' || e.code === 'ArrowUp') keys.w = false;
+        if (e.code === 'KeyS' || e.code === 'ArrowDown') keys.s = false;
+        if (e.code === 'KeyA' || e.code === 'ArrowLeft') keys.a = false;
+        if (e.code === 'KeyD' || e.code === 'ArrowRight') keys.d = false;
+        if (e.code === 'KeyE') keys.e = false; if (e.code === 'KeyQ') keys.q = false;
+    });
 
     class Wall {
         constructor(x, y, w, h) { this.x = x; this.y = y; this.w = w; this.h = h; }
         draw() {
             let cx = this.x - camera.x, cy = this.y - camera.y;
-            if (cx + this.w < 0 || cx > canvas.width || cy + this.h < 0 || cy > canvas.height) return; // Оптимизация
-
+            if (cx + this.w < 0 || cx > canvas.width || cy + this.h < 0 || cy > canvas.height) return;
             let grad = ctx.createLinearGradient(cx, cy, cx, cy + this.h);
             grad.addColorStop(0, '#445'); grad.addColorStop(1, '#112');
             ctx.fillStyle = grad; ctx.fillRect(cx, cy, this.w, this.h);
@@ -208,7 +188,6 @@
         draw() {
             let cx = this.x - camera.x, cy = this.y - camera.y;
             if (cx < -20 || cx > canvas.width+20 || cy < -20 || cy > canvas.height+20) return;
-
             this.pulse += 0.05; let glow = 15 + Math.sin(this.pulse) * 8;
             ctx.shadowBlur = glow; ctx.shadowColor = '#00ffff'; ctx.fillStyle = '#ccffff';
             ctx.beginPath(); ctx.moveTo(cx, cy - 12); ctx.lineTo(cx + 12, cy);
@@ -223,9 +202,17 @@
             this.r = PLAYER_RADIUS;
             this.isMafia = false; this.isDead = false; this.hasDiamond = false;
             this.killCooldown = KILL_COOLDOWN; this.currentRoom = "Главный Холл";
-            this.memory = { lastSeen: {}, bodiesFound: false };
-            this.vx = 0; this.vy = 0; this.targetX = null; this.targetY = null; this.stuckTimer = 0;
-            this.isMoving = false; this.walkCycle = 0;
+            
+            // Умная память: массив событий
+            this.memoryLog = []; 
+            this.updateTimer = 0;
+            
+            this.vx = 0; this.vy = 0; this.targetX = null; this.targetY = null; 
+            this.stuckTimer = 0; this.avoidTimer = 0;
+            this.isMoving = false; this.walkCycle = 0; this.timeSinceDeath = 0;
+            
+            this.aiState = 'WANDER'; // WANDER, HUNT, FLEE
+            this.isAskingLLM = false;
         }
 
         draw() {
@@ -240,16 +227,11 @@
                 return;
             }
 
-            // Анимация ходьбы
-            let bounce = 0;
-            if (this.isMoving) { this.walkCycle += 0.2; bounce = Math.abs(Math.sin(this.walkCycle)) * 4; }
-
+            let bounce = this.isMoving ? Math.abs(Math.sin(this.walkCycle += 0.2)) * 4 : 0;
             ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.beginPath(); ctx.ellipse(cx, cy + 18, this.r, this.r/2, 0, 0, Math.PI*2); ctx.fill();
-            
-            cy -= bounce; // Прыжок при ходьбе
-            ctx.fillStyle = this.hexColor; ctx.fillRect(cx - this.r - 5, cy - this.r + 5, 10, this.r * 1.5); // Рюкзак
+            cy -= bounce; 
+            ctx.fillStyle = this.hexColor; ctx.fillRect(cx - this.r - 5, cy - this.r + 5, 10, this.r * 1.5); 
             ctx.beginPath(); ctx.arc(cx, cy, this.r, 0, Math.PI*2); ctx.fill(); ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.stroke();
-            
             ctx.fillStyle = '#99ccff'; ctx.beginPath(); ctx.ellipse(cx + 6, cy - 4, 12, 7, 0, 0, Math.PI*2); ctx.fill();
             ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.stroke(); ctx.fillStyle = 'white'; ctx.fillRect(cx + 9, cy - 7, 4, 3);
 
@@ -257,113 +239,177 @@
                 ctx.fillStyle = '#00ffff'; ctx.shadowBlur = 15; ctx.shadowColor = '#00ffff';
                 ctx.fillRect(cx - 6, cy - 35, 12, 12); ctx.shadowBlur = 0;
             }
-
-            if (!this.isBot) {
-                ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2;
-                ctx.beginPath(); ctx.arc(cx, cy, this.r + 8, 0, Math.PI*2); ctx.stroke();
-            }
+            if (!this.isBot) { ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx, cy, this.r + 8, 0, Math.PI*2); ctx.stroke(); }
         }
 
         update() {
-            if (this.isDead || gameState !== STATE_PLAYING) return;
+            if (this.isDead) { this.timeSinceDeath++; return; }
+            if (gameState !== STATE_PLAYING) return;
             if (this.killCooldown > 0) this.killCooldown--;
 
-            this.currentRoom = getRoomAt(this.x, this.y); this.updateMemory(); 
+            let prevRoom = this.currentRoom;
+            this.currentRoom = getRoomAt(this.x, this.y); 
+
+            // Логика Аналитики (События)
+            this.updateTimer++;
+            if(this.updateTimer > 30) {
+                this.analyzeSurroundings(prevRoom);
+                this.updateTimer = 0;
+            }
 
             let dx = 0, dy = 0;
             if (!this.isBot) {
                 if (keys.w) dy -= SPEED; if (keys.s) dy += SPEED; if (keys.a) dx -= SPEED; if (keys.d) dx += SPEED;
+                this.handlePlayerActions();
             } else {
                 this.updateAI(); dx = this.vx; dy = this.vy;
             }
 
             this.isMoving = (dx !== 0 || dy !== 0);
-            let oldX = this.x; let oldY = this.y;
+            let oldX = this.x, oldY = this.y;
 
-            if (dx !== 0) { this.x += dx; if (this.checkWallCollision()) this.x = oldX; }
-            if (dy !== 0) { this.y += dy; if (this.checkWallCollision()) this.y = oldY; }
+            if (dx !== 0) { this.x += dx; if (this.checkWallCollision()) this.x -= dx; }
+            if (dy !== 0) { this.y += dy; if (this.checkWallCollision()) this.y -= dy; }
+            this.x = Math.max(this.r, Math.min(MAP_W - this.r, this.x)); this.y = Math.max(this.r, Math.min(MAP_H - this.r, this.y));
 
-            this.x = Math.max(this.r, Math.min(MAP_W - this.r, this.x));
-            this.y = Math.max(this.r, Math.min(MAP_H - this.r, this.y));
-
+            // Выталкивание ботов
             if (this.isBot) {
-                if ((dx !== 0 && this.x === oldX) || (dy !== 0 && this.y === oldY)) this.stuckTimer++; else this.stuckTimer = 0;
-                if (this.stuckTimer > 15) {
-                    let targetArea = getRoomCenter(this.currentRoom);
-                    this.targetX = targetArea.x + (Math.random()*100-50); this.targetY = targetArea.y + (Math.random()*100-50);
-                    this.stuckTimer = 0;
+                if (this.avoidTimer > 0) this.avoidTimer--;
+                else {
+                    if ((dx !== 0 || dy !== 0) && !this.isMoving) this.stuckTimer++; else this.stuckTimer = 0;
+                    if (this.stuckTimer > 10) {
+                        this.avoidTimer = 40; let ang = Math.random() * Math.PI * 2;
+                        this.vx = Math.cos(ang) * BOT_SPEED; this.vy = Math.sin(ang) * BOT_SPEED; this.stuckTimer = 0;
+                    }
                 }
             }
 
-            // Камера следит за игроком
             if (!this.isBot) {
-                camera.x = this.x - canvas.width / 2;
-                camera.y = this.y - canvas.height / 2;
-                // Ограничение камеры по краям карты
-                camera.x = Math.max(0, Math.min(MAP_W - canvas.width, camera.x));
-                camera.y = Math.max(0, Math.min(MAP_H - canvas.height, camera.y));
+                camera.x = Math.max(0, Math.min(MAP_W - canvas.width, this.x - canvas.width / 2));
+                camera.y = Math.max(0, Math.min(MAP_H - canvas.height, this.y - canvas.height / 2));
             }
 
-            // Обнаружение трупов (радиус зрения увеличен до 150)
-            for (let p of players) {
-                if (p.isDead && !p.reported) {
-                    if (Math.hypot(this.x - p.x, this.y - p.y) < 150 && this.currentRoom === p.currentRoom) {
-                        p.reported = true; startMeeting(this, p); return;
+            // Мафия никогда не репортит. Мирные репортят.
+            if (!this.isMafia) {
+                for (let p of players) {
+                    if (p.isDead && !p.reported && p.timeSinceDeath > 90) { 
+                        // Видим ли мы труп (проверка стен лучами слишком сложна, проверяем комнату и дистанцию)
+                        if (Math.hypot(this.x - p.x, this.y - p.y) < REPORT_RADIUS && this.currentRoom === p.currentRoom) {
+                            p.reported = true; startMeeting(this, p); return;
+                        }
                     }
                 }
             }
         }
 
-        updateMemory() {
+        analyzeSurroundings(prevRoom) {
+            // Анализ для чата: кто куда побежал
             for(let p of players) {
-                if(p !== this && !p.isDead && p.currentRoom === this.currentRoom && Math.hypot(this.x - p.x, this.y - p.y) < 250) {
-                    this.memory.lastSeen[p.colorName] = this.currentRoom;
+                if(p === this || p.isDead) continue;
+                if(Math.hypot(this.x - p.x, this.y - p.y) < 300) {
+                    // Заметили подозрительное поведение
+                    if(p.isMoving && p.currentRoom !== this.currentRoom && p.currentRoom !== "Коридор") {
+                        this.logEvent(`видел как ${p.colorName} выбегал из ${p.currentRoom}`);
+                    } else if (this.currentRoom !== "Коридор") {
+                        this.logEvent(`был с ${p.colorName} в ${this.currentRoom}`);
+                    }
+                }
+            }
+        }
+
+        logEvent(text) {
+            if(!this.memoryLog.includes(text)) {
+                this.memoryLog.push(text);
+                if(this.memoryLog.length > 3) this.memoryLog.shift(); // Помним только 3 последних события
+            }
+        }
+
+        handlePlayerActions() {
+            if (keys.e && !this.isMafia) {
+                if (this.hasDiamond && Math.hypot((basket.x+50)-this.x, (basket.y+50)-this.y) < 100) {
+                    this.hasDiamond = false; score++; updateScore(); keys.e = false; playSound('diamond');
+                } else if (!this.hasDiamond) {
+                    for (let i = 0; i < diamonds.length; i++) {
+                        if (Math.hypot(diamonds[i].x - this.x, diamonds[i].y - this.y) < 50) {
+                            this.hasDiamond = true; diamonds.splice(i, 1); keys.e = false; playSound('diamond'); break;
+                        }
+                    }
+                }
+            }
+            if (keys.q && this.isMafia && this.killCooldown <= 0) {
+                for (let p of players) {
+                    if (!p.isDead && !p.isMafia && Math.hypot(p.x - this.x, p.y - this.y) < KILL_RADIUS) {
+                        p.isDead = true; p.hasDiamond = false; p.timeSinceDeath = 0;
+                        this.killCooldown = KILL_COOLDOWN; keys.q = false; playSound('kill'); break;
+                    }
                 }
             }
         }
 
         updateAI() {
-            if (this.targetX === null || Math.hypot(this.targetX - this.x, this.targetY - this.y) < 20) {
-                if (this.isMafia) {
-                    let closest = null; let minD = 9999;
+            if (this.avoidTimer > 0) return;
+
+            // МАФИЯ - УМНЫЙ ИНТЕЛЛЕКТ
+            if (this.isMafia) {
+                if (this.aiState === 'FLEE') {
+                    // Убегает после убийства 5 секунд
+                    if (this.killCooldown < KILL_COOLDOWN - 300) { this.aiState = 'WANDER'; }
+                } 
+                else if (this.killCooldown <= 0 && !this.isAskingLLM) {
+                    let closest = null, minD = 9999;
+                    let visiblePlayers = [];
                     for (let p of players) {
-                        if (p === this || p.isDead || p.isMafia) continue;
+                        if (p === this || p.isDead) continue;
                         let d = Math.hypot(this.x - p.x, this.y - p.y);
-                        if (d < minD) { minD = d; closest = p; }
+                        if(d < 300) visiblePlayers.push(p);
+                        if (!p.isMafia && d < minD) { minD = d; closest = p; }
                     }
-                    if (closest && this.killCooldown <= 0 && minD < 400) {
-                        this.targetX = closest.x; this.targetY = closest.y;
-                    } else {
-                        let roomNames = Object.keys(rooms);
-                        let randRoom = getRoomCenter(roomNames[Math.floor(Math.random()*roomNames.length)]);
-                        this.targetX = randRoom.x + (Math.random()*100-50); this.targetY = randRoom.y + (Math.random()*100-50);
+
+                    if (closest && minD < KILL_RADIUS * 2) {
+                        // Одиночная ли цель?
+                        let witnesses = visiblePlayers.filter(p => p !== closest && !p.isMafia);
+                        if (witnesses.length === 0) {
+                            // ИМБА: Мафия спрашивает нейросеть убивать или нет!
+                            this.isAskingLLM = true;
+                            this.vx = 0; this.vy = 0; // Останавливается подумать
+                            
+                            askAI(`Ты мафия в игре. Рядом ${closest.colorName}. Свидетелей нет. Убить? Ответь JSON: {"action": "kill"} или {"action": "wait"}`).then(res => {
+                                if (res && res.action === 'kill' && Math.hypot(closest.x - this.x, closest.y - this.y) < KILL_RADIUS + 20) {
+                                    closest.isDead = true; closest.hasDiamond = false; closest.timeSinceDeath = 0;
+                                    this.killCooldown = KILL_COOLDOWN; playSound('kill');
+                                    this.aiState = 'FLEE';
+                                    let safeRoom = Object.keys(rooms)[Math.floor(Math.random()*Object.keys(rooms).length)];
+                                    let rc = getRoomCenter(safeRoom); this.targetX = rc.x; this.targetY = rc.y;
+                                }
+                                this.isAskingLLM = false;
+                            });
+                        } else {
+                            this.targetX = closest.x; this.targetY = closest.y; // Преследует, но ждет момента
+                        }
+                    } else if (!this.isAskingLLM) {
+                        this.aiState = 'WANDER';
                     }
-                } else {
+                }
+                
+                if(this.aiState === 'WANDER' && !this.isAskingLLM) {
+                    if (this.targetX === null || Math.hypot(this.targetX - this.x, this.targetY - this.y) < 20) {
+                        let roomNames = Object.keys(rooms); let rc = getRoomCenter(roomNames[Math.floor(Math.random()*roomNames.length)]);
+                        this.targetX = rc.x + (Math.random()*100-50); this.targetY = rc.y + (Math.random()*100-50);
+                    }
+                }
+            } 
+            // МИРНЫЙ ИНТЕЛЛЕКТ
+            else {
+                if (this.targetX === null || Math.hypot(this.targetX - this.x, this.targetY - this.y) < 20) {
                     if (this.hasDiamond) {
                         this.targetX = basket.x + basket.w/2; this.targetY = basket.y + basket.h/2;
                     } else if (diamonds.length > 0) {
                         let d = diamonds[Math.floor(Math.random() * diamonds.length)]; this.targetX = d.x; this.targetY = d.y;
                     } else {
-                        let roomNames = Object.keys(rooms);
-                        let randRoom = getRoomCenter(roomNames[Math.floor(Math.random()*roomNames.length)]);
-                        this.targetX = randRoom.x; this.targetY = randRoom.y;
+                        let roomNames = Object.keys(rooms); let rc = getRoomCenter(roomNames[Math.floor(Math.random()*roomNames.length)]);
+                        this.targetX = rc.x; this.targetY = rc.y;
                     }
                 }
-            }
-
-            if (this.targetX !== null) {
-                let angle = Math.atan2(this.targetY - this.y, this.targetX - this.x);
-                this.vx = Math.cos(angle) * BOT_SPEED; this.vy = Math.sin(angle) * BOT_SPEED;
-            }
-
-            if (this.isMafia && this.killCooldown <= 0) {
-                for (let p of players) {
-                    if (p !== this && !p.isDead && !p.isMafia && Math.hypot(this.x - p.x, this.y - p.y) < KILL_RADIUS) {
-                        p.isDead = true; p.hasDiamond = false; this.killCooldown = KILL_COOLDOWN; this.targetX = null; 
-                        playSound('kill'); break;
-                    }
-                }
-            } else if (!this.isMafia) {
                 if (this.hasDiamond && Math.hypot((basket.x+basket.w/2)-this.x, (basket.y+basket.h/2)-this.y) < 80) {
                     this.hasDiamond = false; score++; updateScore(); this.targetX = null; playSound('diamond');
                 } else if (!this.hasDiamond) {
@@ -374,12 +420,19 @@
                     }
                 }
             }
+
+            // Движение к цели
+            if (this.targetX !== null && !this.isAskingLLM) {
+                let angle = Math.atan2(this.targetY - this.y, this.targetX - this.x);
+                this.vx = Math.cos(angle) * BOT_SPEED; this.vy = Math.sin(angle) * BOT_SPEED;
+            }
         }
 
-        checkWallCollision(testX = this.x, testY = this.y) {
-            let hitBox = this.r;
+        checkWallCollision() {
+            let hitBox = this.r * 0.9;
             for (let w of mapWalls) {
-                if (testX + hitBox > w.x && testX - hitBox < w.x + w.w && testY + hitBox > w.y && testY - hitBox < w.y + w.h) return true;
+                if (this.x + hitBox > w.x && this.x - hitBox < w.x + w.w && 
+                    this.y + hitBox > w.y && this.y - hitBox < w.y + w.h) return true;
             }
             return false;
         }
@@ -387,22 +440,20 @@
 
     function initMap() {
         rooms = { 
-            "Верхний Двигатель": { x: 100, y: 100, w: 400, h: 400 }, "Реактор": { x: 100, y: 600, w: 400, h: 400 }, "Нижний Двигатель": { x: 100, y: 1100, w: 400, h: 400 },
-            "Медпункт": { x: 600, y: 100, w: 400, h: 300 }, "Охрана": { x: 600, y: 600, w: 300, h: 300 }, "Электрика": { x: 600, y: 1100, w: 400, h: 400 },
-            "Кафетерий": { x: 1100, y: 100, w: 600, h: 500 }, "Главный Холл": { x: 1000, y: 700, w: 400, h: 400 }, "Хранилище": { x: 1100, y: 1200, w: 500, h: 300 },
-            "Оружейная": { x: 1800, y: 100, w: 500, h: 400 }, "О2": { x: 1800, y: 600, w: 400, h: 300 }, "Щиты": { x: 1800, y: 1000, w: 400, h: 300 }, "Навигация": { x: 1700, y: 1400, w: 600, h: 150 }
+            "Двигатель": { x: 100, y: 100, w: 400, h: 400 }, "Реактор": { x: 100, y: 800, w: 400, h: 400 },
+            "Медпункт": { x: 800, y: 100, w: 300, h: 300 }, "Охрана": { x: 800, y: 800, w: 300, h: 300 },
+            "Кафетерий": { x: 1300, y: 100, w: 600, h: 400 }, "Главный Холл": { x: 1400, y: 800, w: 400, h: 400 },
+            "Оружейная": { x: 2100, y: 100, w: 250, h: 300 }, "Щиты": { x: 2100, y: 800, w: 250, h: 300 }
         };
-
         mapWalls.push(new Wall(0, 0, MAP_W, 40)); mapWalls.push(new Wall(0, MAP_H-40, MAP_W, 40)); 
         mapWalls.push(new Wall(0, 0, 40, MAP_H)); mapWalls.push(new Wall(MAP_W-40, 0, 40, MAP_H));
 
-        // Генерация стен на основе комнат (упрощенно: рисуем стены вокруг комнат, оставляя "двери")
         for (let name in rooms) {
             let r = rooms[name];
-            mapWalls.push(new Wall(r.x, r.y, r.w, 20)); // Верх
-            mapWalls.push(new Wall(r.x, r.y + r.h, r.w/2 - 40, 20)); mapWalls.push(new Wall(r.x + r.w/2 + 40, r.y + r.h, r.w/2 - 40, 20)); // Низ с дверью
-            mapWalls.push(new Wall(r.x, r.y, 20, r.h/2 - 40)); mapWalls.push(new Wall(r.x, r.y + r.h/2 + 40, 20, r.h/2 - 40)); // Лево с дверью
-            mapWalls.push(new Wall(r.x + r.w, r.y, 20, r.h/2 - 40)); mapWalls.push(new Wall(r.x + r.w, r.y + r.h/2 + 40, 20, r.h/2 - 40)); // Право с дверью
+            mapWalls.push(new Wall(r.x, r.y, r.w, 20)); 
+            mapWalls.push(new Wall(r.x, r.y + r.h, r.w/2 - 60, 20)); mapWalls.push(new Wall(r.x + r.w/2 + 60, r.y + r.h, r.w/2 - 60, 20)); 
+            mapWalls.push(new Wall(r.x, r.y, 20, r.h/2 - 60)); mapWalls.push(new Wall(r.x, r.y + r.h/2 + 60, 20, r.h/2 - 60)); 
+            mapWalls.push(new Wall(r.x + r.w, r.y, 20, r.h/2 - 60)); mapWalls.push(new Wall(r.x + r.w, r.y + r.h/2 + 60, 20, r.h/2 - 60)); 
         }
     }
 
@@ -410,7 +461,6 @@
         for (let name in rooms) { let r = rooms[name]; if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return name; }
         return "Коридор";
     }
-
     function getRoomCenter(name) {
         if(!rooms[name]) return {x: MAP_W/2, y: MAP_H/2}; let r = rooms[name]; return { x: r.x + r.w/2, y: r.y + r.h/2 };
     }
@@ -418,48 +468,37 @@
     function spawnDiamonds() {
         if (diamonds.length < 15 && gameState === STATE_PLAYING) {
             let roomNames = Object.keys(rooms).filter(r => r !== "Главный Холл");
-            let randRoom = roomNames[Math.floor(Math.random() * roomNames.length)];
-            let r = rooms[randRoom];
-            diamonds.push(new Diamond(r.x + 80 + Math.random() * (r.w - 160), r.y + 80 + Math.random() * (r.h - 160), randRoom));
+            let r = rooms[roomNames[Math.floor(Math.random() * roomNames.length)]];
+            diamonds.push(new Diamond(r.x + 80 + Math.random() * (r.w - 160), r.y + 80 + Math.random() * (r.h - 160), ""));
         }
     }
 
     let localPlayer;
-
     function initGame() {
         floorTex = ctx.createPattern(floorPattern, 'repeat'); initMap();
-        
-        let roles = Array(10).fill('CITIZEN');
-        roles[0] = 'MAFIA'; roles[1] = 'MAFIA'; 
-        roles.sort(() => Math.random() - 0.5);
+        let roles = Array(10).fill('CITIZEN'); roles[0] = 'MAFIA'; roles[1] = 'MAFIA'; roles.sort(() => Math.random() - 0.5);
 
         for (let i = 0; i < 10; i++) {
             let p = new Player(i, i !== 0, COLORS[i], HEX_COLORS[i]); p.isMafia = (roles[i] === 'MAFIA'); players.push(p);
             if (i === 0) {
                 localPlayer = p;
-                document.getElementById('role-text').innerText = p.isMafia ? 'Роль: МАФИЯ (Убить: Q)' : 'Роль: Мирный';
+                document.getElementById('role-text').innerText = p.isMafia ? 'Роль: МАФИЯ (Q)' : 'Роль: Мирный';
                 document.getElementById('role-text').style.color = p.isMafia ? '#ff5555' : '#55ff55';
             }
         }
-        
         requestAnimationFrame(gameLoop); setInterval(spawnDiamonds, 2000);
         
         document.getElementById('chat-send-btn').onclick = sendPlayerMessage;
         document.getElementById('chat-input-text').addEventListener('keypress', function(e) { if (e.key === 'Enter') sendPlayerMessage(); });
     }
 
-    // --- ЛОГИКА СОБРАНИЯ И ЧАТА (УМНЫЙ ИИ) ---
-    let chatHistory = [];
-    let votes = {};
-    let meetingTimer = 120;
-    let timerInterval;
-    let isChatActive = false;
+    // --- ЧАТ ---
+    let chatHistory = []; let votes = {}; let meetingTimer = 120; let timerInterval; let isChatActive = false;
     
-    // Функция поиска обвинений в тексте
     function parseAccusation(text, senderColor) {
         let txt = text.toLowerCase();
         for (let c of COLORS) {
-            if (txt.includes(c.toLowerCase()) && (txt.includes('за ') || txt.includes('кикаем') || txt.includes('голосуем') || txt.includes('мафия'))) {
+            if (txt.includes(c.toLowerCase()) && (txt.includes('за ') || txt.includes('кикаем') || txt.includes('голосуем') || txt.includes('он '))) {
                 if(!currentAccusations[c]) currentAccusations[c] = [];
                 if(!currentAccusations[c].includes(senderColor)) currentAccusations[c].push(senderColor);
             }
@@ -468,45 +507,35 @@
 
     function sendPlayerMessage() {
         if(!isChatActive || localPlayer.isDead) return;
-        let input = document.getElementById('chat-input-text');
-        let text = input.value.trim();
+        let input = document.getElementById('chat-input-text'); let text = input.value.trim();
         if(text) {
-            chatHistory.push(`${localPlayer.colorName}: ${text}`);
-            addChatHTML(localPlayer.colorName, text, "#ffffff");
-            parseAccusation(text, localPlayer.colorName);
-            input.value = '';
+            chatHistory.push(`${localPlayer.colorName}: ${text}`); addChatHTML(localPlayer.colorName, text, "#ffffff");
+            parseAccusation(text, localPlayer.colorName); input.value = '';
         }
     }
 
     function startMeeting(reporter, deadPlayer) {
-        gameState = STATE_MEETING; keys.w = keys.a = keys.s = keys.d = false;
-        playSound('meeting');
+        gameState = STATE_MEETING; keys.w = keys.a = keys.s = keys.d = false; keys.e = false; keys.q = false;
+        playSound('meeting'); currentAccusations = {}; 
         
-        currentAccusations = {}; // Сброс обвинений раунда
-        document.getElementById('meeting-screen').style.display = 'flex';
-        document.getElementById('chat-box').innerHTML = '';
-        document.getElementById('voting-area').style.display = 'none';
-        document.getElementById('voting-status').style.display = 'block';
-        document.getElementById('meeting-title').innerText = `ТРУП: ${deadPlayer.colorName} (${deadPlayer.currentRoom})`;
+        document.getElementById('meeting-screen').style.display = 'flex'; document.getElementById('chat-box').innerHTML = '';
+        document.getElementById('voting-area').style.display = 'none'; document.getElementById('voting-status').style.display = 'block';
+        document.getElementById('meeting-title').innerText = `ТРУП: ${deadPlayer.colorName}`;
         
-        chatHistory = [];
-        addChatHTML("СИСТЕМА", `${reporter.colorName} зарепортил труп в локации ${deadPlayer.currentRoom}.`, "#ff5555");
-
+        chatHistory = []; addChatHTML("СИСТЕМА", `${reporter.colorName} нашел труп. Локация: ${deadPlayer.currentRoom}.`, "#ff5555");
         let inputArea = document.getElementById('player-input-area');
         if (!localPlayer.isDead) {
             inputArea.style.display = 'flex'; document.getElementById('chat-send-btn').disabled = false; document.getElementById('chat-input-text').disabled = false;
         } else { inputArea.style.display = 'none'; }
 
-        isChatActive = true; meetingTimer = 120;
-        document.getElementById('timer-text').innerText = `Обсуждение: ${meetingTimer} сек`;
+        isChatActive = true; meetingTimer = 120; document.getElementById('timer-text').innerText = `Обсуждение: ${meetingTimer} сек`;
         
         timerInterval = setInterval(() => {
             meetingTimer--; document.getElementById('timer-text').innerText = `Обсуждение: ${meetingTimer} сек`;
             if (meetingTimer <= 0) { clearInterval(timerInterval); endChatPhase(); }
         }, 1000);
 
-        let aliveBots = players.filter(p => p.isBot && !p.isDead);
-        botChatLoop(aliveBots);
+        botChatLoop(players.filter(p => p.isBot && !p.isDead));
     }
 
     async function botChatLoop(aliveBots) {
@@ -515,213 +544,146 @@
         let bot = aliveBots[Math.floor(Math.random() * aliveBots.length)];
         document.getElementById('loading-ai').style.display = 'block';
         
-        let memoryStr = Object.keys(bot.memory.lastSeen).map(k => `${k} был рядом`).join(", ");
-        if(!memoryStr) memoryStr = "бродил один";
+        let memoryStr = bot.memoryLog.length > 0 ? bot.memoryLog.join(", ") : "ничего не видел";
+        let pastContext = pastRoundsMemory.length > 0 ? "Прошлые голосования: " + pastRoundsMemory.join(" ") : "";
 
-        let pastContext = pastRoundsMemory.length > 0 ? "ИСТОРИЯ ПРОШЛЫХ РАУНДОВ: " + pastRoundsMemory.join(" ") : "Это первое собрание.";
-
+        // ЖЕСТКИЙ ПРОМПТ. Аналитика + Лексика.
         let prompt = `
-            Это игра Among Us. Твой цвет: ${bot.colorName}. Роль: ${bot.isMafia ? 'Мафия (ври, сливай мирных)' : 'Мирный (ищи логику, сомневайся)'}.
-            Память: ${memoryStr}. ${pastContext}
-            Чат: ${chatHistory.slice(-8).join(" | ")}.
-            ИНСТРУКЦИЯ:
-            1. ПИШИ КАК ЖИВОЙ ИГРОК. Сленг: скип, пруфы, репорт, фейк, инфа, чел. Без точек в конце, с маленькой буквы.
-            2. НЕ ПОВТОРЯЙ инфу из чата! Если уже сказали где труп - реагируй, а не констатируй.
-            3. Если в ИСТОРИИ написано, что кто-то слил мирного - наедь на него! (Например: "ты же в прошлый раз мирного кикнул").
-            4. Если игрок (ВЫ) задает вопрос - отвечай ЕМУ по делу.
-            5. Кратко, 3-8 слов.
+            Твой цвет: ${bot.colorName}. Роль: ${bot.isMafia ? 'Мафия (ври)' : 'Мирный'}. 
+            Что ты запомнил: ${memoryStr}. ${pastContext}
+            Чат: ${chatHistory.slice(-6).join(" | ")}.
+            
+            ПРАВИЛА (СТРОГО):
+            1. ПИШИ КАК ШКОЛЬНИК-ГЕЙМЕР. Очень коротко (2-6 слов). Без точек, с маленькой буквы.
+            2. НИКАКИХ СЛОВ: "тайминги", "маршруты", "камеры", "алиби".
+            3. Если в твоей памяти написано "видел как Синий выбегал из Реактора", а труп нашли в Реакторе -> обвиняй Синего! ("синий выбегал оттуда", "это синий инфа сотка").
+            4. Мафия: переводи стрелки или пиши "скип".
             Формат JSON: {"msg": "твой текст"}
         `;
 
         let response = await askAI(prompt);
-        let msgText = "че по инфе?"; 
+        let msgText = "да я вообще алмазы носил"; 
         if (response && response.msg) msgText = response.msg;
 
         if (isChatActive) {
-            chatHistory.push(`${bot.colorName}: ${msgText}`);
-            addChatHTML(bot.colorName, msgText, bot.hexColor);
-            parseAccusation(msgText, bot.colorName);
-            document.getElementById('loading-ai').style.display = 'none';
-            setTimeout(() => botChatLoop(aliveBots), Math.random() * 3000 + 4000);
+            chatHistory.push(`${bot.colorName}: ${msgText}`); addChatHTML(bot.colorName, msgText, bot.hexColor);
+            parseAccusation(msgText, bot.colorName); document.getElementById('loading-ai').style.display = 'none';
+            setTimeout(() => botChatLoop(aliveBots), Math.random() * 3000 + 3500);
         }
     }
 
     function addChatHTML(name, text, color) {
-        let chat = document.getElementById('chat-box');
-        let div = document.createElement('div');
+        let chat = document.getElementById('chat-box'); let div = document.createElement('div');
         div.className = 'chat-msg'; div.innerHTML = `<b style="color: ${color}">[${name}]:</b> ${text}`;
         chat.appendChild(div); chat.scrollTop = chat.scrollHeight;
     }
 
     function endChatPhase() {
-        isChatActive = false;
-        document.getElementById('chat-send-btn').disabled = true; document.getElementById('chat-input-text').disabled = true;
+        isChatActive = false; document.getElementById('chat-send-btn').disabled = true; document.getElementById('chat-input-text').disabled = true;
         document.getElementById('loading-ai').style.display = 'none';
-        
-        let aliveBots = players.filter(p => p.isBot && !p.isDead);
-        startVoting(aliveBots);
+        startVoting(players.filter(p => p.isBot && !p.isDead));
     }
 
     function startVoting(aliveBots) {
-        addChatHTML("СИСТЕМА", "ВРЕМЯ ВЫШЛО. ГОЛОСУЙТЕ НА ОСНОВЕ ЧАТА!", "#ff0");
-        document.getElementById('voting-status').style.display = 'none';
-        
-        let voteArea = document.getElementById('voting-area');
-        voteArea.innerHTML = ''; voteArea.style.display = 'flex';
-        
+        addChatHTML("СИСТЕМА", "ВРЕМЯ ВЫШЛО. ГОЛОСУЙТЕ!", "#ff0"); document.getElementById('voting-status').style.display = 'none';
+        let voteArea = document.getElementById('voting-area'); voteArea.innerHTML = ''; voteArea.style.display = 'flex';
         votes = { "Skip": 0 }; players.forEach(p => { if(!p.isDead) votes[p.colorName] = 0; });
 
-        if (localPlayer.isDead) {
-            voteArea.innerHTML = '<div style="color:red; font-size:24px; width:100%; text-align:center;">Вы мертвы. Наблюдайте.</div>';
-            processBotVotes(aliveBots); return;
-        }
+        if (localPlayer.isDead) { voteArea.innerHTML = '<div style="color:red; font-size:24px; width:100%; text-align:center;">Вы мертвы. Наблюдайте.</div>'; processBotVotes(aliveBots); return; }
 
         players.forEach(p => {
             if (!p.isDead) {
                 let btn = document.createElement('button'); btn.className = 'vote-btn'; btn.style.borderColor = p.hexColor;
-                btn.innerText = p.colorName;
-                btn.onclick = () => { castVote(p.colorName); processBotVotes(aliveBots); };
-                voteArea.appendChild(btn);
+                btn.innerText = p.colorName; btn.onclick = () => { castVote(p.colorName); processBotVotes(aliveBots); }; voteArea.appendChild(btn);
             }
         });
-        
         let skipBtn = document.createElement('button'); skipBtn.className = 'vote-btn skip'; skipBtn.innerText = 'Скипнуть';
-        skipBtn.onclick = () => { castVote('Skip'); processBotVotes(aliveBots); };
-        voteArea.appendChild(skipBtn);
+        skipBtn.onclick = () => { castVote('Skip'); processBotVotes(aliveBots); }; voteArea.appendChild(skipBtn);
     }
 
     function castVote(target) {
-        playSound('diamond'); // звук клика
-        document.querySelectorAll('.vote-btn').forEach(b => b.disabled = true);
-        addChatHTML("ВЫ", `Проголосовал за: ${target}`, "#fff");
-        votes[target]++;
+        playSound('diamond'); document.querySelectorAll('.vote-btn').forEach(b => b.disabled = true);
+        addChatHTML("ВЫ", `Проголосовал за: ${target}`, "#fff"); votes[target]++;
     }
 
     async function processBotVotes(aliveBots) {
-        document.getElementById('voting-status').style.display = 'block';
-        document.getElementById('voting-status').innerText = "Ожидание голосов ботов...";
-
-        // Боты голосуют не случайно, а на основе обвинений (currentAccusations) и логики ИИ
+        document.getElementById('voting-status').style.display = 'block'; document.getElementById('voting-status').innerText = "Ожидание голосов ботов...";
         for (let bot of aliveBots) {
-            let aliveNames = players.filter(p => !p.isDead).map(p=>p.colorName).join(", ");
             let prompt = `
-                Твой цвет: ${bot.colorName}. Роль: ${bot.isMafia ? 'Мафия' : 'Мирный'}.
-                Живые: ${aliveNames}. Чат: ${chatHistory.slice(-15).join(" | ")}.
-                На кого больше всего гнали в чате? Кого выкинуть? (Мафия может спасать своих или топить мирных).
-                Ответь ОДНИМ словом: Имя или Skip.
+                Твой цвет: ${bot.colorName}. Роль: ${bot.isMafia ? 'Мафия' : 'Мирный'}. Чат: ${chatHistory.slice(-15).join(" | ")}.
+                На кого больше всего гнали? Кого кикаем? Ответь ОДНИМ словом: Имя или Skip.
                 Формат JSON: {"vote": "Имя или Skip"}
             `;
-
-            let response = await askAI(prompt);
-            let target = "Skip"; 
+            let response = await askAI(prompt); let target = "Skip"; 
             if (response && response.vote && (votes[response.vote] !== undefined)) target = response.vote;
             else {
-                // Если ИИ тупит, смотрим кто на кого гнал в JS
-                let maxAccusations = 0;
+                let maxAcc = 0;
                 for(let c in currentAccusations) {
-                    if(currentAccusations[c].length > maxAccusations && votes[c] !== undefined && c !== bot.colorName) {
-                        maxAccusations = currentAccusations[c].length; target = c;
-                    }
+                    if(currentAccusations[c].length > maxAcc && votes[c] !== undefined && c !== bot.colorName) { maxAcc = currentAccusations[c].length; target = c; }
                 }
             }
-            
             votes[target]++; addChatHTML("СИСТЕМА", `${bot.colorName} проголосовал.`, "#666");
         }
-
         setTimeout(tallyVotes, 1500);
     }
 
     function tallyVotes() {
         let max = -1, ejected = null, tie = false;
         for (let k in votes) {
-            if (votes[k] > max) { max = votes[k]; ejected = k; tie = false; }
-            else if (votes[k] === max) tie = true;
+            if (votes[k] > max) { max = votes[k]; ejected = k; tie = false; } else if (votes[k] === max) tie = true;
         }
-
         let res = "";
-        if (tie || ejected === 'Skip') {
-            res = "Голоса разделились. Никто не выбывает.";
-        } else {
+        if (tie || ejected === 'Skip') { res = "Скип. Никто не выбывает."; } 
+        else {
             let p = players.find(x => x.colorName === ejected);
             if (p) {
-                playSound('eject');
-                p.isDead = true; 
-                res = `${ejected} выкинут в космос. Он был ${p.isMafia ? 'МАФИЕЙ!' : 'Мирным.'}`;
-                
-                // ЗАПИСЬ В ГЛОБАЛЬНУЮ ПАМЯТЬ РАУНДОВ
-                let accusers = currentAccusations[ejected] ? currentAccusations[ejected].join(", ") : "Все понемногу";
-                pastRoundsMemory.push(`Выгнали ${ejected} (${p.isMafia ? 'Мафия' : 'Мирный'}). Активно гнали на него: ${accusers}.`);
-                // Храним только последние 2 раунда чтобы не переполнять промпт
+                playSound('eject'); p.isDead = true; res = `${ejected} выкинут. Роль: ${p.isMafia ? 'МАФИЯ' : 'Мирный'}.`;
+                let accusers = currentAccusations[ejected] ? currentAccusations[ejected].join(" и ") : "никто конкретно";
+                pastRoundsMemory.push(`в прошлый раз кикнули ${ejected} (${p.isMafia ? 'мафия' : 'мирный'}), больше всего гнали: ${accusers}.`);
                 if(pastRoundsMemory.length > 2) pastRoundsMemory.shift();
             }
         }
         addChatHTML("ИТОГ", res, "#ffaa00");
-
-        setTimeout(() => {
-            document.getElementById('meeting-screen').style.display = 'none';
-            checkWinCondition(); if (gameState !== STATE_GAMEOVER) resetAfterMeeting();
-        }, 5000);
+        setTimeout(() => { document.getElementById('meeting-screen').style.display = 'none'; checkWinCondition(); if (gameState !== STATE_GAMEOVER) resetAfterMeeting(); }, 5000);
     }
 
     function checkWinCondition() {
-        let aliveMafia = players.filter(p => p.isMafia && !p.isDead).length;
-        let aliveCit = players.filter(p => !p.isMafia && !p.isDead).length;
-
+        let aliveMafia = players.filter(p => p.isMafia && !p.isDead).length, aliveCit = players.filter(p => !p.isMafia && !p.isDead).length;
         if (score >= TARGET_SCORE) return endGame("МИРНЫЕ ПОБЕДИЛИ! Алмазы собраны.");
         if (aliveMafia === 0) return endGame("МИРНЫЕ ПОБЕДИЛИ! Вся Мафия мертва.");
         if (aliveMafia >= aliveCit) return endGame("МАФИЯ ПОБЕДИЛА! Мирных не осталось.");
     }
 
-    function endGame(txt) {
-        playSound('meeting');
-        gameState = STATE_GAMEOVER;
-        document.getElementById('game-over-screen').style.display = 'flex';
-        document.getElementById('game-over-text').innerText = txt;
-    }
+    function endGame(txt) { playSound('meeting'); gameState = STATE_GAMEOVER; document.getElementById('game-over-screen').style.display = 'flex'; document.getElementById('game-over-text').innerText = txt; }
 
     function resetAfterMeeting() {
         gameState = STATE_PLAYING;
         players.forEach(p => {
             if (!p.isDead) {
                 let center = getRoomCenter("Главный Холл");
-                p.x = center.x + (Math.random()*100-50); p.y = center.y + (Math.random()*100-50);
-                p.reported = false; p.targetX = null; p.memory = { lastSeen: {}, bodiesFound: false }; 
+                p.x = center.x + (Math.random()*200-100); p.y = center.y + (Math.random()*200-100);
+                p.reported = false; p.targetX = null; p.memoryLog = []; p.timeSinceDeath = 0; p.isAskingLLM = false;
                 if(p.isMafia) p.killCooldown = KILL_COOLDOWN;
-            }
+            } else { p.reported = true; }
         });
     }
 
-    function updateScore() {
-        document.getElementById('score-text').innerText = `Алмазов: ${score} / ${TARGET_SCORE}`;
-        if(score >= TARGET_SCORE) checkWinCondition();
-    }
+    function updateScore() { document.getElementById('score-text').innerText = `Алмазов: ${score} / ${TARGET_SCORE}`; if(score >= TARGET_SCORE) checkWinCondition(); }
 
     function gameLoop() {
         if (gameState === STATE_PLAYING) {
-            ctx.fillStyle = '#111'; ctx.fillRect(0, 0, canvas.width, canvas.height); // Фон космоса
-
-            ctx.save();
-            // Смещение мира относительно камеры
-            ctx.translate(-camera.x, -camera.y);
-
-            // Отрисовка пола карты
+            ctx.fillStyle = '#050505'; ctx.fillRect(0, 0, canvas.width, canvas.height); 
+            ctx.save(); ctx.translate(-camera.x, -camera.y);
             ctx.fillStyle = floorTex; ctx.fillRect(0, 0, MAP_W, MAP_H);
-            
-            // Названия комнат
-            ctx.fillStyle = 'rgba(255,255,255,0.15)'; ctx.font = 'bold 40px Arial'; ctx.textAlign = 'center';
+            ctx.fillStyle = 'rgba(255,255,255,0.1)'; ctx.font = 'bold 40px Arial'; ctx.textAlign = 'center';
             for (let name in rooms) ctx.fillText(name, rooms[name].x + rooms[name].w/2, rooms[name].y + rooms[name].h/2);
-
-            // Корзина
             ctx.fillStyle = 'rgba(255, 100, 0, 0.2)'; ctx.beginPath(); ctx.arc(basket.x+50, basket.y+50, 70, 0, Math.PI*2); ctx.fill();
             ctx.fillStyle = '#8B4513'; ctx.fillRect(basket.x, basket.y, basket.w, basket.h);
             ctx.fillStyle = '#fff'; ctx.font = '18px Arial'; ctx.fillText('КОРЗИНА', basket.x+50, basket.y+55);
-
-            ctx.restore(); // Возвращаем координаты для объектов, которые рисуются с учетом камеры внутри классов
+            ctx.restore(); 
 
             mapWalls.forEach(w => w.draw()); diamonds.forEach(d => d.draw()); players.forEach(p => p.update());
-            
-            let drawOrder = [...players].sort((a, b) => (a.isDead === b.isDead) ? 0 : a.isDead ? -1 : 1);
-            drawOrder.forEach(p => p.draw());
+            let drawOrder = [...players].sort((a, b) => (a.isDead === b.isDead) ? 0 : a.isDead ? -1 : 1); drawOrder.forEach(p => p.draw());
 
             if (localPlayer.isMafia && !localPlayer.isDead) {
                 ctx.fillStyle = 'white'; ctx.font = 'bold 20px Arial'; let cd = Math.ceil(localPlayer.killCooldown / 60);
@@ -730,7 +692,6 @@
         }
         requestAnimationFrame(gameLoop);
     }
-
     window.onload = initGame;
 </script>
 </body>
